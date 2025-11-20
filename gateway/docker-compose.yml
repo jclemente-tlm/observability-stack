@@ -1,0 +1,138 @@
+networks:
+  observability:
+    name: observability
+    driver: bridge
+
+volumes:
+  loki_data:
+  tempo_data:
+  mimir_data:
+  grafana_data:
+
+# Bloque de logging reutilizable
+x-default-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "5m"
+    max-file: "2"
+    tag: "{{.Name}}"
+
+services:
+  alloy-gateway:
+    image: grafana/alloy:v1.11.3
+    container_name: alloy-gateway
+    restart: unless-stopped
+    mem_limit: 250m
+    volumes:
+      - ./alloy-gateway/config.alloy:/etc/alloy/config.alloy:ro
+    command:
+      [
+        "run",
+        "/etc/alloy/config.alloy",
+        "--server.http.listen-addr=0.0.0.0:5000",
+      ]
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "12345:12345"
+      - "5000:5000"
+    networks:
+      - observability
+    logging: *logging
+
+  loki:
+    image: grafana/loki:3.5.8
+    container_name: loki
+    restart: unless-stopped
+    mem_limit: 500m
+    volumes:
+      - ./loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/config.yaml
+    ports:
+      - "3100:3100"
+    networks:
+      - observability
+    logging: *logging
+
+  tempo:
+    image: grafana/tempo:2.9.0
+    container_name: tempo
+    restart: unless-stopped
+    mem_limit: 300m
+    volumes:
+      - ./tempo/config.yaml:/etc/tempo/config.yaml:ro
+    command: -config.file=/etc/tempo/config.yaml
+    ports:
+      # - "4317:4317"
+      - "3200:3200"
+    networks:
+      - observability
+    logging: *logging
+
+  mimir:
+    image: grafana/mimir:2.17.2
+    container_name: mimir
+    restart: unless-stopped
+    mem_limit: 700m
+    volumes:
+      - ./mimir/config.yaml:/etc/mimir/config.yaml:ro
+      - mimir_data:/data
+    command: -config.file=/etc/mimir/config.yaml
+    ports:
+      - "9009:9009"
+    networks:
+      - observability
+    logging: *logging
+
+  grafana:
+    image: grafana/grafana:12.2.1
+    container_name: grafana
+    restart: unless-stopped
+    mem_limit: 400m
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3000:3000"
+    networks:
+      - observability
+    logging: *logging
+
+  node-exporter:
+    image: prom/node-exporter:v1.10.2
+    container_name: node-exporter
+    restart: unless-stopped
+    mem_limit: 100m
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.ignored-mount-points="^/(sys|proc|dev|run|var/lib/docker/.+)($|/)"
+    ports:
+      - "9100:9100"
+    networks:
+      - observability
+    logging: *logging
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.0
+    container_name: cadvisor
+    restart: unless-stopped
+    mem_limit: 250m
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - observability
+    logging: *logging

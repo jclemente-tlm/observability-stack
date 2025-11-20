@@ -1,10 +1,10 @@
-# Docker Compose Override - Aplicaciones de ejemplo
-# Este archivo se combina automáticamente con docker-compose.yml
-# Para excluirlo, usa: docker compose -f docker-compose.yml up
-include:
-  - path:
-      - /central/docker-compose.yml # depend on the main docker-compose file
-      # - docker-compose-tests_include-override.yml # include override for tests
+# # Docker Compose Override - Aplicaciones de ejemplo
+# # Este archivo se combina automáticamente con docker-compose.yml
+# # Para excluirlo, usa: docker compose -f docker-compose.yml up
+# include:
+#   - path:
+#       - /central/docker-compose.yml # depend on the main docker-compose file
+#       # - docker-compose-tests_include-override.yml # include override for tests
 
 # volumes:
 #   postgres_data:
@@ -48,9 +48,7 @@ services:
     depends_on:
       orders-postgres:
         condition: service_healthy
-      otel-collector:
-        condition: service_started
-      api2:
+      notifications:
         condition: service_started
     restart: unless-stopped
 
@@ -68,15 +66,26 @@ services:
       - OTEL_RESOURCE_ATTRIBUTES=service.name=notifications-service,service.version=1.0.0,deployment.environment=dev,tenant=default
       - OTEL_SERVICE_NAME=notifications-service
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=ordersdb;Username=postgres;Password=postgres123
-    depends_on:
-      postgres:
-        condition: service_healthy
-      otel-collector:
-        condition: service_started
     restart: unless-stopped
 
-  grafana:
+  trace-testing:
+    image: trace-testing
+    container_name: trace-testing
+    build:
+      context: ./
+      dockerfile: ./trace-testing/Dockerfile
     environment:
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
-      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - ENV=${ENV}
+    volumes:
+      - ./trace-testing:/app/test/trace-testing
+    depends_on:
+      orders:
+        condition: service_started
+      notifications:
+        condition: service_started
+
+
+networks:
+  observability:
+    name: observability
+    external: true

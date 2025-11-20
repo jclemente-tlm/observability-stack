@@ -154,7 +154,7 @@ app.MapGet("/api/notifications/order/{orderId}", (string orderId, ILogger<Progra
 });
 
 // Health check
-app.MapGet("/health", () => Results.Ok(new { Service = "notifications-service", Status = "healthy" }));
+app.MapGet("/health", () => Results.Ok(new { Service = "Notifications", Status = "healthy" }));
 
 app.Run();
 

@@ -16,19 +16,29 @@ x-default-logging: &logging
     max-file: "2"
     tag: "{{.Name}}"
 
+x-health-curl: &hc-curl
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:${HEALTH_PORT:-80}/ready || exit 1"]
+    interval: 10s
+    timeout: 3s
+    retries: 5
+    start_period: 5s
+
 services:
   alloy-gateway:
     image: grafana/alloy:v1.11.3
-    container_name: alloy-gateway
+    #container_name: alloy-gateway       # evita fijar a menos que lo necesites explícitamente
     restart: unless-stopped
     mem_limit: 250m
+    environment:
+      HEALTH_PORT: 4318
     volumes:
       - ./alloy-gateway/config.alloy:/etc/alloy/config.alloy:ro
     command:
       [
         "run",
         "/etc/alloy/config.alloy",
-        "--server.http.listen-addr=0.0.0.0:5000",
+        "--server.http.listen-addr=0.0.0.0:5000"
       ]
     ports:
       - "4317:4317" # OTLP gRPC
@@ -38,12 +48,15 @@ services:
     networks:
       - observability
     logging: *logging
+    <<: *hc-curl
 
   loki:
     image: grafana/loki:3.5.8
-    container_name: loki
+    #container_name: loki
     restart: unless-stopped
     mem_limit: 500m
+    environment:
+      HEALTH_PORT: 3100
     volumes:
       - ./loki/config.yaml:/etc/loki/config.yaml:ro
       - loki_data:/loki
@@ -53,27 +66,32 @@ services:
     networks:
       - observability
     logging: *logging
+    <<: *hc-curl
 
   tempo:
     image: grafana/tempo:2.9.0
-    container_name: tempo
+    #container_name: tempo
     restart: unless-stopped
     mem_limit: 300m
+    environment:
+      HEALTH_PORT: 3200
     volumes:
       - ./tempo/config.yaml:/etc/tempo/config.yaml:ro
     command: -config.file=/etc/tempo/config.yaml
     ports:
-      # - "4317:4317"
       - "3200:3200"
     networks:
       - observability
     logging: *logging
+    <<: *hc-curl
 
   mimir:
     image: grafana/mimir:2.17.2
-    container_name: mimir
+    #container_name: mimir
     restart: unless-stopped
     mem_limit: 700m
+    environment:
+      HEALTH_PORT: 9009
     volumes:
       - ./mimir/config.yaml:/etc/mimir/config.yaml:ro
       - mimir_data:/data
@@ -83,27 +101,43 @@ services:
     networks:
       - observability
     logging: *logging
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9009/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
 
   grafana:
     image: grafana/grafana:12.2.1
-    container_name: grafana
+    #container_name: grafana
     restart: unless-stopped
     mem_limit: 400m
     env_file:
-      - .env
+      - .env                 # asegúrate de ejecutar desde central/ para que se lea central/.env
+    user: "472"              # ejecuta Grafana con UID grafana (mejora seguridad)
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning
-      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
       - "3000:3000"
     networks:
       - observability
     logging: *logging
+    environment:
+      HEALTH_PORT: 3000
+    <<: *hc-curl
+    # opcional: depende de indexadores si quieres esperar a que esten "ready"
+    # depends_on:
+    #   loki:
+    #     condition: service_healthy
+    #   mimir:
+    #     condition: service_healthy
 
   node-exporter:
     image: prom/node-exporter:v1.10.2
-    container_name: node-exporter
+    #container_name: node-exporter
     restart: unless-stopped
     mem_limit: 100m
     volumes:
@@ -120,10 +154,16 @@ services:
     networks:
       - observability
     logging: *logging
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9100/metrics || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.52.0
-    container_name: cadvisor
+    #container_name: cadvisor
     restart: unless-stopped
     mem_limit: 250m
     privileged: true
@@ -137,3 +177,9 @@ services:
     networks:
       - observability
     logging: *logging
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

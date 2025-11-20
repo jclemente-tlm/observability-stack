@@ -1,0 +1,68 @@
+# include:
+#   - path:
+#       - docker-compose.yml
+
+services:
+  alloy-gateway:
+    mem_limit: 500m    
+    # healthcheck:
+    #   test: ["CMD-SHELL", "echo > /dev/tcp/localhost/4318 || exit 1"]
+    #   interval: 10s
+    #   timeout: 2s
+    #   retries: 5
+
+  loki:
+    mem_limit: 2g    
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 2s
+      retries: 5
+
+  tempo:
+    mem_limit: 1.2g    
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3200/ready"]
+      interval: 10s
+      timeout: 2s
+      retries: 5
+
+  mimir:
+    mem_limit: 2.5g    
+    # healthcheck:
+    #   test: [ "CMD", "/usr/bin/wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/ready" ]
+    #   interval: 15s
+    #   timeout: 3s
+    #   retries: 5
+
+  grafana:
+    mem_limit: 800m    
+    environment:
+      GF_SECURITY_ALLOW_EMBEDDING: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_LOG_LEVEL: "warn"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  node-exporter:
+    mem_limit: 120m    
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9100/metrics >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  cadvisor:
+    mem_limit: 350m    
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/metrics >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+

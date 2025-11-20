@@ -242,7 +242,7 @@ app.MapPatch("/api/orders/{id}/status", async (
 });
 
 // Health check
-app.MapGet("/health", () => Results.Ok(new { Service = "orders-service", Status = "healthy" }));
+app.MapGet("/health", () => Results.Ok(new { Service = "Orders", Status = "healthy" }));
 
 app.Run();
 
