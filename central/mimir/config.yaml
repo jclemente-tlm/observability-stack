@@ -1,0 +1,31 @@
+# Modo multitenant habilitado
+multitenancy_enabled: true
+
+# En dev usamos filesystem
+blocks_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/mimir
+
+# Configuración de anillo simplificada para dev (single-node)
+distributor:
+  ring:
+    kvstore:
+      store: inmemory
+
+ingester:
+  ring:
+    kvstore:
+      store: inmemory
+    # Factor de replicación 1 para single-node
+    replication_factor: 1
+
+limits:
+  max_global_series_per_user: 500000
+  ingestion_rate: 200000
+  ingestion_burst_size: 400000
+  # Aumentar límite de labels para métricas de cAdvisor
+  max_label_names_per_series: 50
+
+server:
+  http_listen_port: 9009

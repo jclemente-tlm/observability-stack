@@ -1,0 +1,41 @@
+🔹 Recomendación PROD — Límites reales
+Servicio	Memoria
+Alloy       500m
+Loki        2g
+Tempo       1.2g
+Mimir       2.5g
+Grafana     800m
+node-exp    120m
+cadvisor    350m
+-------------------------
+TOTAL ≈ 7.5 GB
++ SO + Docker ≈ 2GB
+-------------------------
+NECESITA ≈ 9.5 GB reales
+
+🟣 INSTANCIA EC2 IDEAL PARA PROD
+⭐ Opción recomendada: t3.xlarge (16GB RAM, 4 vCPU)
+
+✔ Holgura para Loki y Mimir
+✔ Puede manejar picos de ingestión
+✔ Puede cachear series métricas
+✔ Puede almacenar WAL en RAM adecuadamente
+
+
+
+🔹 Recomendación NON-PROD
+Servicio	    Memoria Comentario
+Alloy	        250 m	Recibe OTLP de dev/QA, bajo volumen
+Loki	        500 m	Logs de dev/QA, retención corta
+Tempo	        300 m	Trazas de desarrollo, pocas spans
+Mimir	        700 m	Métricas dev/QA, baja cardinalidad
+Grafana	        400 m	Dashboards simples de prueba
+node-exporter	100 m	Métricas básicas del host
+cAdvisor	    250 m	Métricas contenedores dev/QA
+
+TOTAL containers ≈ 2.5 GB
+
+SO + Docker overhead ≈ 1.5 GB
+Memoria total necesaria ≈ 4 GB
+
+t3a.medium (4 GB RAM, 2 vCPU) → suficiente para desarrollo y QA.

@@ -1,0 +1,82 @@
+# Docker Compose Override - Aplicaciones de ejemplo
+# Este archivo se combina automáticamente con docker-compose.yml
+# Para excluirlo, usa: docker compose -f docker-compose.yml up
+include:
+  - path:
+      - /central/docker-compose.yml # depend on the main docker-compose file
+      # - docker-compose-tests_include-override.yml # include override for tests
+
+# volumes:
+#   postgres_data:
+
+services:
+  # Base de datos PostgreSQL
+  orders-postgres:
+    image: postgres:16-alpine
+    container_name: orders-postgres
+    ports:
+      - "5432:5432"
+    networks:
+      - observability
+    environment:
+      - POSTGRES_DB=ordersdb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres123
+    # volumes:
+    #   - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Orders Service
+  orders:
+    build: ./orders
+    container_name: orders
+    ports:
+      - "8081:8081"
+    networks:
+      - observability
+    environment:
+      - ASPNETCORE_URLS=http://+:8081
+      - ENV=${ENV}
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=orders-service,service.version=1.0.0,deployment.environment=dev,tenant=default
+      - OTEL_SERVICE_NAME=orders-service
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=ordersdb;Username=postgres;Password=postgres123
+    depends_on:
+      orders-postgres:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      api2:
+        condition: service_started
+    restart: unless-stopped
+
+  # Notifications Service
+  notifications:
+    build: ./notifications
+    container_name: notifications
+    ports:
+      - "8082:8082"
+    networks:
+      - observability
+    environment:
+      - ASPNETCORE_URLS=http://+:8082
+      - ENV=${ENV}
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=notifications-service,service.version=1.0.0,deployment.environment=dev,tenant=default
+      - OTEL_SERVICE_NAME=notifications-service
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=ordersdb;Username=postgres;Password=postgres123
+    depends_on:
+      postgres:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    restart: unless-stopped
+
+  grafana:
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true

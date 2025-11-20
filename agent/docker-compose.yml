@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  alloy-local:
+    image: grafana/alloy:latest
+    container_name: alloy-local
+    restart: unless-stopped
+    user: root
+    volumes:
+      - ./config/alloy-local.yaml:/etc/alloy/config.yaml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: ["run", "/etc/alloy/config.yaml"]
+    networks:
+      - observability
+
+networks:
+  observability:
+    external: true
