@@ -8,6 +8,7 @@ volumes:
   tempo_data:
   mimir_data:
   grafana_data:
+  keycloak_db:
 
 # Bloque de logging reutilizable
 x-default-logging: &logging
@@ -18,6 +19,47 @@ x-default-logging: &logging
     tag: "{{.Name}}"
 
 services:
+  # Auth Service - Valida JWT de Keycloak para Envoy ext_authz
+  auth-service:
+    build: ./auth-service
+    container_name: ${COMPOSE_PROJECT_NAME}-auth-service
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: observability
+      DEFAULT_TENANT: ${TENANT_ID}
+    networks:
+      - observability
+    depends_on:
+      - keycloak
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Envoy Proxy - Punto de entrada para OTLP con routing multi-tenant
+  envoy:
+    image: envoyproxy/envoy:v1.31-latest
+    container_name: ${COMPOSE_PROJECT_NAME}-envoy
+    restart: unless-stopped
+    mem_limit: 256m
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    command: ["-c", "/etc/envoy/envoy.yaml"]
+    ports:
+      - "4317:4317" # OTLP gRPC (público)
+      - "4318:4318" # OTLP HTTP (público)
+      - "9901:9901" # Envoy Admin
+    networks:
+      - observability
+    depends_on:
+      - alloy-gateway
+      - auth-service
+    logging: *logging
+
   alloy-gateway:
     image: grafana/alloy:v1.11.3
     container_name: ${COMPOSE_PROJECT_NAME}-alloy-gateway
@@ -37,8 +79,8 @@ services:
         "--server.http.listen-addr=0.0.0.0:5000",
       ]
     ports:
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
+      - "14317:14317" # OTLP gRPC (interno, desde Envoy)
+      - "14318:14318" # OTLP HTTP (interno, desde Envoy)
       - "5000:5000"
     networks:
       observability:
@@ -135,6 +177,55 @@ services:
       - "9100:9100"
     networks:
       - observability
+    logging: *logging
+
+  # ============================================================================
+  # KEYCLOAK - Identity and Access Management (preparado, auth opcional)
+  # ============================================================================
+  keycloak-db:
+    image: postgres:16-alpine
+    container_name: ${COMPOSE_PROJECT_NAME}-keycloak-db
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+    volumes:
+      - keycloak_db:/var/lib/postgresql/data
+    networks:
+      - observability
+    logging: *logging
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: ${COMPOSE_PROJECT_NAME}-keycloak
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: 8090
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_STRICT_HTTPS: false
+      KC_HTTP_ENABLED: true
+      KC_HEALTH_ENABLED: true
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+      - ./keycloak/observability-realm.json:/opt/keycloak/data/import/observability-realm.json:ro
+    command:
+      - start-dev
+      - --import-realm
+    ports:
+      - "8090:8080"
+    networks:
+      - observability
+    depends_on:
+      - keycloak-db
     logging: *logging
 
   cadvisor:

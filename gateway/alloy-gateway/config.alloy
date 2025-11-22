@@ -17,13 +17,14 @@ tracing {
 //=============================================================================
 
 // Recibe telemetría OTLP de aplicaciones externas (gRPC y HTTP)
+// Ahora escucha en puertos internos porque Envoy es el punto de entrada
 otelcol.receiver.otlp "gateway_receiver" {
   grpc {
-    endpoint = "0.0.0.0:4317"
+    endpoint = "0.0.0.0:14317"
   }
 
   http {
-    endpoint = "0.0.0.0:4318"
+    endpoint = "0.0.0.0:14318"
   }
 
   output {
