@@ -46,6 +46,20 @@ help:
 	@echo "  build         - build images"
 	@echo "  detect-gateway- show detected Docker gateway IP"
 	@echo ""
+	@echo "Alias convenientes:"
+	@echo "  start-gateway       - inicia gateway (local)"
+	@echo "  stop-gateway        - detiene gateway"
+	@echo "  start-gateway-nonprod - inicia gateway (nonprod)"
+	@echo "  start-gateway-prod  - inicia gateway (prod)"
+	@echo "  start-agent         - inicia agent (local)"
+	@echo "  stop-agent          - detiene agent"
+	@echo "  start-agent-nonprod - inicia agent (nonprod)"
+	@echo "  start-agent-prod    - inicia agent (prod)"
+	@echo "  run-test            - ejecuta tests"
+	@echo "  stop-test           - detiene tests"
+	@echo "  start-all           - inicia gateway + agent"
+	@echo "  stop-all            - detiene todo el stack"
+	@echo ""
 
 detect-gateway:
 	@echo "Detected Docker Gateway IP: $(DOCKER_GATEWAY)"
@@ -104,3 +118,59 @@ build: detect-gateway
 
 clean-images:
 	@docker rmi $(shell docker images --filter=reference="observability*" -q);
+
+# ============================================================================
+# Alias convenientes para targets y entornos comunes
+# ============================================================================
+
+# Gateway
+.PHONY: start-gateway stop-gateway start-gateway-nonprod start-gateway-prod
+start-gateway:
+	@$(MAKE) start TARGET=gateway ENV=local
+
+stop-gateway:
+	@$(MAKE) stop TARGET=gateway ENV=local
+
+start-gateway-nonprod:
+	@$(MAKE) start TARGET=gateway ENV=nonprod
+
+start-gateway-prod:
+	@$(MAKE) start TARGET=gateway ENV=prod
+
+# Agent
+.PHONY: start-agent stop-agent start-agent-nonprod start-agent-prod
+start-agent:
+	@$(MAKE) start TARGET=agent ENV=local
+
+stop-agent:
+	@$(MAKE) stop TARGET=agent ENV=local
+
+start-agent-nonprod:
+	@$(MAKE) start TARGET=agent ENV=nonprod
+
+start-agent-prod:
+	@$(MAKE) start TARGET=agent ENV=prod
+
+# Tests
+.PHONY: run-test stop-test
+run-test:
+	@$(MAKE) test ENV=local
+
+stop-test:
+	@$(MAKE) stop TARGET=tests ENV=local
+
+# Comandos completos
+.PHONY: start-all stop-all
+start-all:
+	@echo "Starting complete observability stack..."
+	@$(MAKE) start-gateway
+	@sleep 5
+	@$(MAKE) start-agent
+	@echo "Stack started successfully!"
+
+stop-all:
+	@echo "Stopping complete observability stack..."
+	@$(MAKE) stop-agent
+	@$(MAKE) stop-gateway
+	@$(MAKE) stop-test
+	@echo "Stack stopped successfully!"
