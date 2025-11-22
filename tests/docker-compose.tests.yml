@@ -45,7 +45,7 @@ services:
       - ENV=${ENV}
       - TENANT_ID=${TENANT_ID}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}
-      - OTEL_RESOURCE_ATTRIBUTES=service.name=orders-service,service.version=1.0.0,deployment.environment=${ENV},tenant_id=${TENANT_ID},service.country=${LOCAL_COUNTRY}
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=orders-service,service.version=1.0.0,deployment.environment=${ENV},tenant_id=${TENANT_ID},service.country=${COUNTRY_CODE}
       - OTEL_SERVICE_NAME=orders-service
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=ordersdb;Username=postgres;Password=postgres123
     depends_on:
@@ -80,7 +80,7 @@ services:
       - ENV=${ENV}
       - TENANT_ID=${TENANT_ID}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}
-      - OTEL_RESOURCE_ATTRIBUTES=service.name=notifications-service,service.version=1.0.0,deployment.environment=${ENV},tenant_id=${TENANT_ID},service.country=${LOCAL_COUNTRY}
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=notifications-service,service.version=1.0.0,deployment.environment=${ENV},tenant_id=${TENANT_ID},service.country=${COUNTRY_CODE}
       - OTEL_SERVICE_NAME=notifications-service
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=ordersdb;Username=postgres;Password=postgres123
     restart: unless-stopped

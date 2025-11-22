@@ -1,11 +1,233 @@
-logging {
-  level = "debug"
+//=============================================================================
+// CONFIGURACIÓN GLOBAL
+//=============================================================================
 
-  // Reenvía logs internos a la instancia local de Loki.
-  write_to = [loki.relabel.alloy_logs.receiver]
+logging {
+  level    = env("LOG_LEVEL")
+  write_to = [loki.relabel.gateway_logs.receiver]
 }
 
-loki.relabel "alloy_logs" {
+tracing {
+  sampling_fraction = 1.0
+  write_to          = [otelcol.exporter.otlp.tempo.input]
+}
+
+//=============================================================================
+// 1. RECEIVERS - Recepción de telemetría
+//=============================================================================
+
+// Recibe telemetría OTLP de aplicaciones externas (gRPC y HTTP)
+otelcol.receiver.otlp "gateway_receiver" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    metrics = [otelcol.processor.attributes.add_collector_info.input]
+    logs    = [otelcol.processor.attributes.add_collector_info.input]
+    traces  = [otelcol.processor.attributes.add_collector_info.input]
+  }
+}
+
+//=============================================================================
+// 2. PROCESSORS - Procesamiento y enriquecimiento
+//=============================================================================
+
+// Agrega información de identificación: tenant, collector, país, instancia
+otelcol.processor.attributes "add_collector_info" {
+  action {
+    key    = "service.name"
+    action = "insert"
+    value  = "alloy-gateway"
+  }
+
+  action {
+    key    = "tenant_id"
+    action = "insert"
+    value  = env("TENANT_ID")
+  }
+
+  action {
+    key    = "collector"
+    action = "insert"
+    value  = "gateway"
+  }
+
+  action {
+    key    = "collector_name"
+    action = "insert"
+    value  = env("COLLECTOR_NAME")
+  }
+
+  action {
+    key    = "collector_instance"
+    action = "insert"
+    value  = constants.hostname
+  }
+
+  action {
+    key    = "collector_country"
+    action = "insert"
+    value  = env("COUNTRY_CODE")
+  }
+
+  output {
+    metrics = [otelcol.processor.batch.gateway_batch.input]
+    logs    = [otelcol.processor.batch.gateway_batch.input]
+    traces  = [otelcol.processor.batch.gateway_batch.input]
+  }
+}
+
+// Agrupa datos en lotes para optimizar el envío a backends
+otelcol.processor.batch "gateway_batch" {
+  output {
+    metrics = [otelcol.exporter.prometheus.mimir.input]
+    logs    = [otelcol.exporter.loki.loki.input]
+    traces  = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+//=============================================================================
+// 3. EXPORTERS - Exportación a backends
+//=============================================================================
+
+// 3.1 Métricas - Convierte de OTLP a Prometheus y envía a Mimir
+otelcol.exporter.prometheus "mimir" {
+  forward_to          = [prometheus.remote_write.mimir.receiver]
+  add_metric_suffixes = false
+}
+
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = "http://mimir:9009/api/v1/push"
+    headers = {
+      "X-Scope-OrgID" = env("TENANT_ID"),
+    }
+    send_native_histograms = true
+  }
+}
+
+// 3.2 Logs - Convierte de OTLP a formato Loki y envía a Loki
+otelcol.exporter.loki "loki" {
+  forward_to = [loki.write.loki.receiver]
+}
+
+loki.write "loki" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+    headers = {
+      "X-Scope-OrgID" = env("TENANT_ID"),
+    }
+  }
+}
+
+// 3.3 Trazas - Envía OTLP directamente a Tempo
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+    headers = {
+      "X-Scope-OrgID" = env("TENANT_ID"),
+    }
+  }
+}
+
+//=============================================================================
+// 4. SCRAPING - Recolección de métricas Prometheus
+//=============================================================================
+
+// 4.1 Métricas del propio Gateway (autoinstrumentación)
+prometheus.exporter.self "gateway_self" {}
+
+prometheus.scrape "gateway_self" {
+  targets    = prometheus.exporter.self.gateway_self.targets
+  forward_to = [prometheus.relabel.gateway_self_metrics.receiver]
+}
+
+prometheus.relabel "gateway_self_metrics" {
+  forward_to = [prometheus.remote_write.mimir.receiver]
+
+  rule {
+    target_label = "tenant_id"
+    replacement  = env("TENANT_ID")
+  }
+
+  rule {
+    target_label = "collector"
+    replacement  = "gateway"
+  }
+
+  rule {
+    target_label = "collector_name"
+    replacement  = env("COLLECTOR_NAME")
+  }
+
+  rule {
+    target_label = "collector_instance"
+    replacement  = constants.hostname
+  }
+
+  rule {
+    target_label = "collector_country"
+    replacement  = env("COUNTRY_CODE")
+  }
+}
+
+// 4.2 Métricas de infraestructura (Node Exporter y cAdvisor)
+prometheus.scrape "gateway_node_exporter" {
+  targets = [
+    { "__address__" = "node-exporter:9100", "job" = "node_exporter" },
+  ]
+  forward_to = [prometheus.relabel.gateway_infra_metrics.receiver]
+}
+
+prometheus.scrape "gateway_cadvisor" {
+  targets = [
+    { "__address__" = "cadvisor:8080", "job" = "cadvisor" },
+  ]
+  forward_to = [prometheus.relabel.gateway_infra_metrics.receiver]
+}
+
+prometheus.relabel "gateway_infra_metrics" {
+  forward_to = [prometheus.remote_write.mimir.receiver]
+
+  rule {
+    target_label = "tenant_id"
+    replacement  = env("TENANT_ID")
+  }
+
+  rule {
+    target_label = "collector"
+    replacement  = "gateway"
+  }
+
+  rule {
+    target_label = "collector_name"
+    replacement  = env("COLLECTOR_NAME")
+  }
+
+  rule {
+    target_label = "collector_instance"
+    replacement  = constants.hostname
+  }
+
+  rule {
+    target_label = "collector_country"
+    replacement  = env("COUNTRY_CODE")
+  }
+}
+
+//=============================================================================
+// 5. OBSERVABILIDAD INTERNA - Logs del propio Gateway
+//=============================================================================
+
+loki.relabel "gateway_logs" {
   rule {
     target_label = "instance"
     replacement  = constants.hostname
@@ -21,206 +243,20 @@ loki.relabel "alloy_logs" {
     replacement  = env("TENANT_ID")
   }
 
-  forward_to = [loki.write.loki.receiver]
-}
-
-tracing {
-  // Escribe todos los spans. ¡No hacer esto en producción!
-  sampling_fraction = 1.0
-
-  // Reenvía spans internos a la instancia local de Tempo.
-  write_to = [otelcol.exporter.otlp.tempo.input]
-}
-
-//=============================================================================
-// GATEWAY: OTLP Receiver - Recibe logs, métricas y trazas desde aplicaciones
-//=============================================================================
-
-// Recibe trazas vía OTLP y las envía a Tempo
-otelcol.receiver.otlp "default" {
-  grpc {
-    endpoint = "0.0.0.0:4317"
-  }
-
-  http {
-    endpoint = "0.0.0.0:4318"
-  }
-
-  output {
-    metrics = [otelcol.processor.attributes.tenant.input]
-    logs    = [otelcol.processor.attributes.tenant.input]
-    traces  = [otelcol.processor.attributes.tenant.input]
-  }
-}
-
-// Procesa atributos de tenant_id
-otelcol.processor.attributes "tenant" {
-  // Si no hay tenant_id, asigna el tenant del gateway
-  action {
-    key    = "tenant_id"
-    action = "insert"
-    value  = env("TENANT_ID")
-  }
-
-  output {
-    metrics = [otelcol.processor.batch.default.input]
-    logs    = [otelcol.processor.batch.default.input]
-    traces  = [otelcol.processor.batch.default.input]
-  }
-}
-
-// Procesa los datos en lotes para mejor rendimiento
-otelcol.processor.batch "default" {
-  output {
-    metrics = [otelcol.exporter.prometheus.mimir.input]
-    logs    = [otelcol.exporter.loki.loki.input]
-    traces  = [otelcol.exporter.otlp.tempo.input]
-  }
-}
-
-// Exporta métricas OTLP a Mimir (convierte a Prometheus)
-// Las métricas OTLP incluyen resource attributes como labels
-otelcol.exporter.prometheus "mimir" {
-  forward_to = [prometheus.relabel.add_tenant.receiver]
-  add_metric_suffixes = false
-}
-
-// Agrega tenant_id desde resource attributes a las métricas
-prometheus.relabel "add_tenant" {
-  forward_to = [prometheus.remote_write.mimir.receiver]
-
-  // Si no hay tenant_id, asigna el tenant del gateway
-  rule {
-    source_labels = ["tenant_id"]
-    target_label  = "tenant_id"
-    action        = "replace"
-    regex         = "^$"
-    replacement   = env("TENANT_ID")
-  }
-}
-
-// Exporta logs OTLP a Loki (el exporter convierte atributos OTLP en labels)
-otelcol.exporter.loki "loki" {
-  forward_to = [loki.process.add_tenant.receiver]
-}
-
-// Procesa logs para agregar tenant_id como label
-loki.process "add_tenant" {
-  forward_to = [loki.write.loki.receiver]
-
-  stage.tenant {
-    source = "tenant_id"
-  }
-}
-
-// Exporta trazas OTLP a Tempo con tenant genérico
-otelcol.exporter.otlp "tempo" {
-  client {
-    endpoint = "tempo:4317"
-
-    tls {
-      insecure = true
-    }
-
-    headers = {
-      "X-Scope-OrgID" = env("TENANT_ID"),
-    }
-  }
-}
-
-//=============================================================================
-// SCRAPING: Colección de métricas de exporters Prometheus
-//=============================================================================
-
-// Recolecta métricas de la instancia local de Alloy y las reenvía a Prometheus.
-prometheus.exporter.self "alloy" {}
-prometheus.scrape "alloy" {
-  targets    = prometheus.exporter.self.alloy.targets
-  forward_to = [prometheus.relabel.local_metrics.receiver]
-}
-
-prometheus.relabel "local_metrics" {
-  forward_to = [prometheus.remote_write.mimir.receiver]
-
-  rule {
-    target_label = "tenant_id"
-    replacement  = env("TENANT_ID")
-  }
-
   rule {
     target_label = "collector"
     replacement  = "gateway"
   }
 
   rule {
-    target_label = "collector_instance"
-    replacement  = constants.hostname
-  }
-}
-
-// Recolecta métricas de Node Exporter del gateway
-prometheus.scrape "node_exporter" {
-  targets = [
-    { "__address__" = "node-exporter:9100", "job" = "node_exporter" },
-  ]
-  forward_to = [prometheus.relabel.gateway_metrics.receiver]
-}
-
-// Recolecta métricas de cAdvisor del gateway
-prometheus.scrape "cadvisor" {
-  targets = [
-    { "__address__" = "cadvisor:8080", "job" = "cadvisor" },
-  ]
-  forward_to = [prometheus.relabel.gateway_metrics.receiver]
-}
-
-prometheus.relabel "gateway_metrics" {
-  forward_to = [prometheus.remote_write.mimir.receiver]
-
-  rule {
-    target_label = "tenant_id"
-    replacement  = env("TENANT_ID")
+    target_label = "collector_name"
+    replacement  = env("COLLECTOR_NAME")
   }
 
   rule {
-    target_label = "collector"
-    replacement  = "gateway"
+    target_label = "collector_country"
+    replacement  = env("COUNTRY_CODE")
   }
 
-  rule {
-    target_label = "collector_instance"
-    replacement  = constants.hostname
-  }
+  forward_to = [loki.write.loki.receiver]
 }
-
-//=============================================================================
-// BACKENDS: Configuración de destinos
-//=============================================================================
-
-// Mimir - Métricas con multi-tenancy
-// Todas las métricas van al tenant del gateway, con tenant_id como label adicional
-prometheus.remote_write "mimir" {
-  endpoint {
-    url = "http://mimir:9009/api/v1/push"
-
-    headers = {
-      "X-Scope-OrgID" = env("TENANT_ID"),
-    }
-
-    send_native_histograms = true
-  }
-}
-
-// Loki - Logs con multi-tenancy
-loki.write "loki" {
-  endpoint {
-    url = "http://loki:3100/loki/api/v1/push"
-
-    headers = {
-      "X-Scope-OrgID" = env("TENANT_ID"),
-    }
-  }
-}// Tempo - Trazas (configurado arriba como otelcol.exporter.otlp "tempo")
-// Nota: Tempo usa OTLP directamente, por eso su configuración está
-// en la sección de exporters OTLP (endpoint: tempo:4317)
-// Para multitenant, Tempo extrae el tenant_id del atributo "tenant_id"

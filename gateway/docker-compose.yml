@@ -25,6 +25,9 @@ services:
     # mem_limit: ${ALLOY_MEM_LIMIT}
     environment:
       - TENANT_ID=${TENANT_ID}
+      - COUNTRY_CODE=${COUNTRY_CODE}
+      - COLLECTOR_NAME=${COLLECTOR_NAME}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
       - ./alloy-gateway/config.alloy:/etc/alloy/config.alloy:ro
     command:
@@ -40,8 +43,11 @@ services:
     networks:
       observability:
         aliases:
-          - otel-collector
-          - alloy-gateway
+          - alloy
+    depends_on:
+      - loki
+      - tempo
+      - mimir
     logging: *logging
 
   loki:
@@ -72,7 +78,9 @@ services:
       - "4327:4317"
       - "3200:3200"
     networks:
-      - observability
+      observability:
+        aliases:
+          - tempo
     logging: *logging
 
   mimir:
@@ -95,6 +103,10 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME}-grafana
     restart: unless-stopped
     # mem_limit: ${GRAFANA_MEM_LIMIT}
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning

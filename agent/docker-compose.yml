@@ -18,10 +18,12 @@ services:
     restart: unless-stopped
     mem_limit: ${ALLOY_MEM_LIMIT}
     environment:
-      - LOCAL_COUNTRY=${LOCAL_COUNTRY}
+      - COUNTRY_CODE=${COUNTRY_CODE}
       - TENANT_ID=${TENANT_ID}
       - COLLECTOR_NAME=${COLLECTOR_NAME}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
       - GATEWAY_OTLP_ENDPOINT=${GATEWAY_OTLP_ENDPOINT}
+      - DOCKER_GATEWAY_IP=${DOCKER_GATEWAY_IP:-172.17.0.1}
     volumes:
       - ./alloy-agent/config.alloy:/etc/alloy/config.alloy:ro
     command:

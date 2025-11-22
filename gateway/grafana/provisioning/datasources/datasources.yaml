@@ -1,6 +1,9 @@
 apiVersion: 1
 
 datasources:
+  # ============================================================================
+  # MIMIR (Métricas) - Multi-tenant
+  # ============================================================================
   - name: mimir
     type: prometheus
     uid: mimir
@@ -10,6 +13,34 @@ datasources:
     secureJsonData:
       httpHeaderValue1: "tenant-pe"
 
+  - name: mimir-mx
+    type: prometheus
+    uid: mimir-mx
+    url: http://mimir:9009/prometheus
+    jsonData:
+      httpHeaderName1: "X-Scope-OrgID"
+    secureJsonData:
+      httpHeaderValue1: "tenant-mx"
+
+  - name: mimir-co
+    type: prometheus
+    uid: mimir-co
+    url: http://mimir:9009/prometheus
+    jsonData:
+      httpHeaderName1: "X-Scope-OrgID"
+    secureJsonData:
+      httpHeaderValue1: "tenant-co"
+
+  - name: mimir-all
+    type: prometheus
+    uid: mimir-all
+    url: http://mimir:9009/prometheus
+    jsonData:
+      directUrl: http://mimir:9009/prometheus
+
+  # ============================================================================
+  # LOKI (Logs) - Multi-tenant
+  # ============================================================================
   - name: loki
     type: loki
     uid: loki
@@ -20,6 +51,36 @@ datasources:
     secureJsonData:
       httpHeaderValue1: "tenant-pe"
 
+  - name: loki-mx
+    type: loki
+    uid: loki-mx
+    url: http://loki:3100
+    jsonData:
+      maxLines: 5000
+      httpHeaderName1: "X-Scope-OrgID"
+    secureJsonData:
+      httpHeaderValue1: "tenant-mx"
+
+  - name: loki-co
+    type: loki
+    uid: loki-co
+    url: http://loki:3100
+    jsonData:
+      maxLines: 5000
+      httpHeaderName1: "X-Scope-OrgID"
+    secureJsonData:
+      httpHeaderValue1: "tenant-co"
+
+  - name: loki-all
+    type: loki
+    uid: loki-all
+    url: http://loki:3100
+    jsonData:
+      maxLines: 5000
+
+  # ============================================================================
+  # TEMPO (Traces) - Multi-tenant
+  # ============================================================================
   - name: tempo
     type: tempo
     uid: tempo
@@ -38,3 +99,57 @@ datasources:
       httpHeaderName1: "X-Scope-OrgID"
     secureJsonData:
       httpHeaderValue1: "tenant-pe"
+
+  - name: tempo-mx
+    type: tempo
+    uid: tempo-mx
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogs:
+        datasourceUid: loki-mx
+        spanStartTimeShift: "-1m"
+        spanEndTimeShift: "1m"
+      tracesToMetrics:
+        datasourceUid: mimir-mx
+      serviceMap:
+        datasourceUid: mimir-mx
+      nodeGraph:
+        enabled: true
+      httpHeaderName1: "X-Scope-OrgID"
+    secureJsonData:
+      httpHeaderValue1: "tenant-mx"
+
+  - name: tempo-co
+    type: tempo
+    uid: tempo-co
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogs:
+        datasourceUid: loki-co
+        spanStartTimeShift: "-1m"
+        spanEndTimeShift: "1m"
+      tracesToMetrics:
+        datasourceUid: mimir-co
+      serviceMap:
+        datasourceUid: mimir-co
+      nodeGraph:
+        enabled: true
+      httpHeaderName1: "X-Scope-OrgID"
+    secureJsonData:
+      httpHeaderValue1: "tenant-co"
+
+  - name: tempo-all
+    type: tempo
+    uid: tempo-all
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogs:
+        datasourceUid: loki-all
+        spanStartTimeShift: "-1m"
+        spanEndTimeShift: "1m"
+      tracesToMetrics:
+        datasourceUid: mimir-all
+      serviceMap:
+        datasourceUid: mimir-all
+      nodeGraph:
+        enabled: true
