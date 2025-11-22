@@ -1,0 +1,90 @@
+// Exporter: envía telemetría al gateway central
+otelcol.exporter.otlp "gateway" {
+  client {
+    endpoint = env("GATEWAY_OTLP_ENDPOINT")
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// Processor: inyecta atributo de country
+otelcol.processor.attributes "inject_tenant" {
+  action {
+    key    = "service.country"
+    value  = env("LOCAL_COUNTRY")
+    action = "insert"
+  }
+
+  output {
+    metrics = [otelcol.processor.batch.batch.input]
+    logs    = [otelcol.processor.batch.batch.input]
+    traces  = [otelcol.processor.batch.batch.input]
+  }
+}
+
+// Processor: batch para optimizar envío
+otelcol.processor.batch "batch" {
+  output {
+    metrics = [otelcol.exporter.otlp.gateway.input]
+    logs    = [otelcol.exporter.otlp.gateway.input]
+    traces  = [otelcol.exporter.otlp.gateway.input]
+  }
+}
+
+// Scraping de node-exporter
+prometheus.scrape "node_exporter" {
+  targets = [
+    { __address__ = "node-exporter:9100" },
+  ]
+  forward_to = [prometheus.relabel.node_exporter.receiver]
+}
+
+prometheus.relabel "node_exporter" {
+  forward_to = [otelcol.receiver.prometheus.metrics.receiver]
+
+  rule {
+    target_label = "job"
+    replacement  = "node-exporter"
+  }
+}
+
+// Scraping de cadvisor
+prometheus.scrape "cadvisor" {
+  targets = [
+    { __address__ = "cadvisor:8080" },
+  ]
+  forward_to = [prometheus.relabel.cadvisor.receiver]
+}
+
+prometheus.relabel "cadvisor" {
+  forward_to = [otelcol.receiver.prometheus.metrics.receiver]
+
+  rule {
+    target_label = "job"
+    replacement  = "cadvisor"
+  }
+}
+
+// Receiver: convierte métricas Prometheus a OTLP
+otelcol.receiver.prometheus "metrics" {
+  output {
+    metrics = [otelcol.processor.attributes.inject_tenant.input]
+  }
+}
+
+// Receiver: recibe telemetría OTLP de aplicaciones
+otelcol.receiver.otlp "local" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    metrics = [otelcol.processor.attributes.inject_tenant.input]
+    logs    = [otelcol.processor.attributes.inject_tenant.input]
+    traces  = [otelcol.processor.attributes.inject_tenant.input]
+  }
+}

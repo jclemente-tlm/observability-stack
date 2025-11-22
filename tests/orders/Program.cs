@@ -43,7 +43,7 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.Console(new CompactJsonFormatter())
     .WriteTo.OpenTelemetry(options =>
     {
-        options.Endpoint = "http://otel-collector:4317";
+        options.Endpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://172.17.0.1:4317";
         options.ResourceAttributes = new Dictionary<string, object>
         {
             { "service.name", "orders-service" },
@@ -81,7 +81,7 @@ builder.Services.AddOpenTelemetry()
         .AddNpgsql()
         .AddOtlpExporter(options =>
         {
-            options.Endpoint = new Uri("http://otel-collector:4317");
+            options.Endpoint = new Uri(Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://172.17.0.1:4317");
         }))
 
     // --- METRICS ---
@@ -93,7 +93,7 @@ builder.Services.AddOpenTelemetry()
         .AddProcessInstrumentation()
         .AddOtlpExporter(options =>
         {
-            options.Endpoint = new Uri("http://otel-collector:4317");
+            options.Endpoint = new Uri(Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://172.17.0.1:4317");
         }));
 
 // // --- LOGGING ---
@@ -162,7 +162,7 @@ app.MapPost("/api/orders", async (
     {
         var client = httpClientFactory.CreateClient();
         var notificationResponse = await client.PostAsJsonAsync(
-            "http://api2:8082/api/notifications/send",
+            "http://notifications:8082/api/notifications/send",
             new { OrderId = orderId, CustomerId = request.CustomerId, Message = "Order created successfully" }
         );
 

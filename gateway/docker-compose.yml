@@ -20,9 +20,9 @@ x-default-logging: &logging
 services:
   alloy-gateway:
     image: grafana/alloy:v1.11.3
-    container_name: alloy-gateway
+    container_name: ${COMPOSE_PROJECT_NAME}-alloy-gateway
     restart: unless-stopped
-    mem_limit: 250m
+    # mem_limit: ${ALLOY_MEM_LIMIT}
     volumes:
       - ./alloy-gateway/config.alloy:/etc/alloy/config.alloy:ro
     command:
@@ -34,17 +34,19 @@ services:
     ports:
       - "4317:4317" # OTLP gRPC
       - "4318:4318" # OTLP HTTP
-      - "12345:12345"
       - "5000:5000"
     networks:
-      - observability
+      observability:
+        aliases:
+          - otel-collector
+          - alloy-gateway
     logging: *logging
 
   loki:
     image: grafana/loki:3.5.8
-    container_name: loki
+    container_name: ${COMPOSE_PROJECT_NAME}-loki
     restart: unless-stopped
-    mem_limit: 500m
+    # mem_limit: ${LOKI_MEM_LIMIT}
     volumes:
       - ./loki/config.yaml:/etc/loki/config.yaml:ro
       - loki_data:/loki
@@ -57,9 +59,9 @@ services:
 
   tempo:
     image: grafana/tempo:2.9.0
-    container_name: tempo
+    container_name: ${COMPOSE_PROJECT_NAME}-tempo
     restart: unless-stopped
-    mem_limit: 300m
+    # mem_limit: ${TEMPO_MEM_LIMIT}
     volumes:
       - ./tempo/config.yaml:/etc/tempo/config.yaml:ro
     command: -config.file=/etc/tempo/config.yaml
@@ -72,9 +74,9 @@ services:
 
   mimir:
     image: grafana/mimir:2.17.2
-    container_name: mimir
+    container_name: ${COMPOSE_PROJECT_NAME}-mimir
     restart: unless-stopped
-    mem_limit: 700m
+    # mem_limit: ${MIMIR_MEM_LIMIT}
     volumes:
       - ./mimir/config.yaml:/etc/mimir/config.yaml:ro
       - mimir_data:/data
@@ -87,9 +89,9 @@ services:
 
   grafana:
     image: grafana/grafana:12.2.1
-    container_name: grafana
+    container_name: ${COMPOSE_PROJECT_NAME}-grafana
     restart: unless-stopped
-    mem_limit: 400m
+    # mem_limit: ${GRAFANA_MEM_LIMIT}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
@@ -102,9 +104,9 @@ services:
 
   node-exporter:
     image: prom/node-exporter:v1.10.2
-    container_name: node-exporter
+    container_name: ${COMPOSE_PROJECT_NAME}-node-exporter
     restart: unless-stopped
-    mem_limit: 100m
+    # mem_limit: ${NODE_EXPORTER_MEM_LIMIT}
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
@@ -122,9 +124,9 @@ services:
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.52.0
-    container_name: cadvisor
+    container_name: ${COMPOSE_PROJECT_NAME}-cadvisor
     restart: unless-stopped
-    mem_limit: 250m
+    # mem_limit: ${CADVISOR_MEM_LIMIT}
     privileged: true
     volumes:
       - /:/rootfs:ro

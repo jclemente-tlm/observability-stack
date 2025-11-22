@@ -1,7 +1,7 @@
 FROM alpine:latest
 
 # Set working directory directly to final location
-WORKDIR /app/test/trace-testing
+WORKDIR /app/test/orders-testing
 
 # Install dependencies
 RUN apk add --no-cache bash jq curl
@@ -10,4 +10,4 @@ RUN apk add --no-cache bash jq curl
 # CMD ["test-orders", "10"]
 
 # Entrypoint
-ENTRYPOINT ["/bin/bash", "/app/test/trace-testing/run.sh", "test-orders", "10"]
+ENTRYPOINT ["/bin/bash", "/app/test/orders-testing/run.sh", "10"]

@@ -1,19 +1,74 @@
-version: "3.9"
+networks:
+  observability_agent:
+    name: observability_agent
+    driver: bridge
+
+# Bloque de logging reutilizable
+x-default-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "5m"
+    max-file: "2"
+    tag: "{{.Name}}"
 
 services:
-  alloy-local:
-    image: grafana/alloy:latest
-    container_name: alloy-local
+  alloy-agent:
+    image: grafana/alloy:v1.11.3
+    container_name: ${COMPOSE_PROJECT_NAME}-alloy-agent
     restart: unless-stopped
-    user: root
+    mem_limit: ${ALLOY_MEM_LIMIT}
+    environment:
+      - LOCAL_COUNTRY=${LOCAL_COUNTRY}
+      - GATEWAY_OTLP_ENDPOINT=${GATEWAY_OTLP_ENDPOINT}
     volumes:
-      - ./config/alloy-local.yaml:/etc/alloy/config.yaml:ro
-      - /var/log:/var/log:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-    command: ["run", "/etc/alloy/config.yaml"]
+      - ./alloy-agent/config.alloy:/etc/alloy/config.alloy:ro
+    command:
+      [
+        "run",
+        "/etc/alloy/config.alloy",
+        "--server.http.listen-addr=0.0.0.0:5000",
+      ]
+    ports:
+      - "14317:4317" # OTLP gRPC
+      - "14318:4318" # OTLP HTTP
+      - "15000:5000"
     networks:
-      - observability
+      - observability_agent
+    logging: *logging
 
-networks:
-  observability:
-    external: true
+  node-exporter:
+    image: prom/node-exporter:v1.10.2
+    container_name: ${COMPOSE_PROJECT_NAME}-node-exporter
+    restart: unless-stopped
+    mem_limit: ${NODE_EXPORTER_MEM_LIMIT}
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.ignored-mount-points="^/(sys|proc|dev|run|var/lib/docker/.+)($|/)"
+    ports:
+      - "19100:9100"
+    networks:
+      - observability_agent
+    logging: *logging
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.0
+    container_name: ${COMPOSE_PROJECT_NAME}-cadvisor
+    restart: unless-stopped
+    mem_limit: ${CADVISOR_MEM_LIMIT}
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - "18080:8080"
+    networks:
+      - observability_agent
+    logging: *logging
