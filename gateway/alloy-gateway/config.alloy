@@ -18,7 +18,7 @@ loki.relabel "alloy_logs" {
 
   rule {
     target_label = "tenant_id"
-    replacement  = "anonymous"
+    replacement  = env("TENANT_ID")
   }
 
   forward_to = [loki.write.loki.receiver]
@@ -53,13 +53,13 @@ otelcol.receiver.otlp "default" {
   }
 }
 
-// Extrae o asigna tenant_id desde los atributos de recursos
+// Procesa atributos de tenant_id
 otelcol.processor.attributes "tenant" {
-  // Si no hay tenant_id en los atributos, asigna "default"
+  // Si no hay tenant_id, asigna el tenant del gateway
   action {
     key    = "tenant_id"
     action = "insert"
-    value  = "default"
+    value  = env("TENANT_ID")
   }
 
   output {
@@ -79,16 +79,41 @@ otelcol.processor.batch "default" {
 }
 
 // Exporta métricas OTLP a Mimir (convierte a Prometheus)
+// Las métricas OTLP incluyen resource attributes como labels
 otelcol.exporter.prometheus "mimir" {
+  forward_to = [prometheus.relabel.add_tenant.receiver]
+  add_metric_suffixes = false
+}
+
+// Agrega tenant_id desde resource attributes a las métricas
+prometheus.relabel "add_tenant" {
   forward_to = [prometheus.remote_write.mimir.receiver]
+
+  // Si no hay tenant_id, asigna el tenant del gateway
+  rule {
+    source_labels = ["tenant_id"]
+    target_label  = "tenant_id"
+    action        = "replace"
+    regex         = "^$"
+    replacement   = env("TENANT_ID")
+  }
 }
 
 // Exporta logs OTLP a Loki (el exporter convierte atributos OTLP en labels)
 otelcol.exporter.loki "loki" {
-  forward_to = [loki.write.loki.receiver]
+  forward_to = [loki.process.add_tenant.receiver]
 }
 
-// Exporta trazas OTLP a Tempo
+// Procesa logs para agregar tenant_id como label
+loki.process "add_tenant" {
+  forward_to = [loki.write.loki.receiver]
+
+  stage.tenant {
+    source = "tenant_id"
+  }
+}
+
+// Exporta trazas OTLP a Tempo con tenant genérico
 otelcol.exporter.otlp "tempo" {
   client {
     endpoint = "tempo:4317"
@@ -97,10 +122,8 @@ otelcol.exporter.otlp "tempo" {
       insecure = true
     }
 
-    // Soporte multitenant: Tempo extrae el tenant del atributo tenant_id
-    // o del header X-Scope-OrgID si está configurado en modo multitenant
     headers = {
-      "X-Scope-OrgID" = "anonymous",
+      "X-Scope-OrgID" = env("TENANT_ID"),
     }
   }
 }
@@ -113,59 +136,71 @@ otelcol.exporter.otlp "tempo" {
 prometheus.exporter.self "alloy" {}
 prometheus.scrape "alloy" {
   targets    = prometheus.exporter.self.alloy.targets
-  forward_to = [prometheus.remote_write.mimir.receiver]
+  forward_to = [prometheus.relabel.local_metrics.receiver]
 }
 
-// Recolecta métricas de Node Exporter
+prometheus.relabel "local_metrics" {
+  forward_to = [prometheus.remote_write.mimir.receiver]
+
+  rule {
+    target_label = "tenant_id"
+    replacement  = env("TENANT_ID")
+  }
+}
+
+// Recolecta métricas de Node Exporter del gateway
 prometheus.scrape "node_exporter" {
   targets = [
     { "__address__" = "node-exporter:9100", "job" = "node_exporter" },
   ]
-  forward_to = [prometheus.remote_write.mimir.receiver]
+  forward_to = [prometheus.relabel.gateway_metrics.receiver]
 }
 
-// Recolecta métricas de cAdvisor
+// Recolecta métricas de cAdvisor del gateway
 prometheus.scrape "cadvisor" {
   targets = [
     { "__address__" = "cadvisor:8080", "job" = "cadvisor" },
   ]
+  forward_to = [prometheus.relabel.gateway_metrics.receiver]
+}
+
+prometheus.relabel "gateway_metrics" {
   forward_to = [prometheus.remote_write.mimir.receiver]
+
+  rule {
+    target_label = "tenant_id"
+    replacement  = env("TENANT_ID")
+  }
 }
 
 //=============================================================================
 // BACKENDS: Configuración de destinos
 //=============================================================================
 
-// Mimir - Métricas
+// Mimir - Métricas con multi-tenancy
+// Todas las métricas van al tenant del gateway, con tenant_id como label adicional
 prometheus.remote_write "mimir" {
   endpoint {
     url = "http://mimir:9009/api/v1/push"
 
-    // Soporte multitenant: Mimir requiere X-Scope-OrgID header
-    // Por defecto usamos "anonymous" si no se especifica
     headers = {
-      "X-Scope-OrgID" = "anonymous",
+      "X-Scope-OrgID" = env("TENANT_ID"),
     }
+
+    send_native_histograms = true
   }
 }
 
-// Loki - Logs
+// Loki - Logs con multi-tenancy
 loki.write "loki" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
 
-    // Soporte multitenant: Loki usa el label __tenant_id__ para X-Scope-OrgID
-    // El label debe ser agregado por loki.relabel antes de llegar aquí
-    // Si no existe, usamos "anonymous" vía el default_tenant_id
+    headers = {
+      "X-Scope-OrgID" = env("TENANT_ID"),
+    }
   }
-
-  // Tenant por defecto si no viene el label __tenant_id__
-  external_labels = {
-    "__tenant_id__" = "anonymous",
-  }
-}
-
-// Tempo - Trazas (configurado arriba como otelcol.exporter.otlp "tempo")
+}// Tempo - Trazas (configurado arriba como otelcol.exporter.otlp "tempo")
 // Nota: Tempo usa OTLP directamente, por eso su configuración está
 // en la sección de exporters OTLP (endpoint: tempo:4317)
 // Para multitenant, Tempo extrae el tenant_id del atributo "tenant_id"

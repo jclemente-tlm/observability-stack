@@ -8,8 +8,14 @@ otelcol.exporter.otlp "gateway" {
   }
 }
 
-// Processor: inyecta atributo de country
+// Processor: inyecta tenant_id desde TENANT_ID (tenant-pe, tenant-mx, tenant-co)
 otelcol.processor.attributes "inject_tenant" {
+  action {
+    key    = "tenant_id"
+    value  = env("TENANT_ID")
+    action = "insert"
+  }
+
   action {
     key    = "service.country"
     value  = env("LOCAL_COUNTRY")
@@ -21,9 +27,7 @@ otelcol.processor.attributes "inject_tenant" {
     logs    = [otelcol.processor.batch.batch.input]
     traces  = [otelcol.processor.batch.batch.input]
   }
-}
-
-// Processor: batch para optimizar envío
+} // Processor: batch para optimizar envío
 otelcol.processor.batch "batch" {
   output {
     metrics = [otelcol.exporter.otlp.gateway.input]
@@ -47,6 +51,11 @@ prometheus.relabel "node_exporter" {
     target_label = "job"
     replacement  = "node-exporter"
   }
+
+  rule {
+    target_label = "tenant_id"
+    replacement  = env("TENANT_ID")
+  }
 }
 
 // Scraping de cadvisor
@@ -64,9 +73,12 @@ prometheus.relabel "cadvisor" {
     target_label = "job"
     replacement  = "cadvisor"
   }
-}
 
-// Receiver: convierte métricas Prometheus a OTLP
+  rule {
+    target_label = "tenant_id"
+    replacement  = env("TENANT_ID")
+  }
+} // Receiver: convierte métricas Prometheus a OTLP
 otelcol.receiver.prometheus "metrics" {
   output {
     metrics = [otelcol.processor.attributes.inject_tenant.input]

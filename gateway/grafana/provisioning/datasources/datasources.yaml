@@ -1,7 +1,5 @@
 apiVersion: 1
 
-# Tenant injected via auth-proxy header → X-Scope-OrgID
-
 datasources:
   - name: mimir
     type: prometheus
@@ -10,8 +8,7 @@ datasources:
     jsonData:
       httpHeaderName1: "X-Scope-OrgID"
     secureJsonData:
-      # Tenant fijo para desarrollo. Cambiar a "$__header(X-Scope-OrgID)" para multitenancy real
-      httpHeaderValue1: "anonymous"
+      httpHeaderValue1: "tenant-pe"
 
   - name: loki
     type: loki
@@ -21,8 +18,7 @@ datasources:
       maxLines: 5000
       httpHeaderName1: "X-Scope-OrgID"
     secureJsonData:
-      # Tenant fijo para desarrollo. Cambiar a "$__header(X-Scope-OrgID)" para multitenancy real
-      httpHeaderValue1: "anonymous"
+      httpHeaderValue1: "tenant-pe"
 
   - name: tempo
     type: tempo
@@ -33,7 +29,12 @@ datasources:
         datasourceUid: loki
         spanStartTimeShift: "-1m"
         spanEndTimeShift: "1m"
+      tracesToMetrics:
+        datasourceUid: mimir
+      serviceMap:
+        datasourceUid: mimir
+      nodeGraph:
+        enabled: true
       httpHeaderName1: "X-Scope-OrgID"
     secureJsonData:
-      # Tenant fijo para desarrollo. Cambiar a "$__header(X-Scope-OrgID)" para multitenancy real
-      httpHeaderValue1: "anonymous"
+      httpHeaderValue1: "tenant-pe"

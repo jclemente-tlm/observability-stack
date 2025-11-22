@@ -43,8 +43,9 @@ services:
     environment:
       - ASPNETCORE_URLS=http://+:8081
       - ENV=${ENV}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://172.17.0.1:4317
-      - OTEL_RESOURCE_ATTRIBUTES=service.name=orders-service,service.version=1.0.0,deployment.environment=dev,tenant=default
+      - TENANT_ID=${TENANT_ID}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=orders-service,service.version=1.0.0,deployment.environment=${ENV},tenant_id=${TENANT_ID},service.country=${LOCAL_COUNTRY}
       - OTEL_SERVICE_NAME=orders-service
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=ordersdb;Username=postgres;Password=postgres123
     depends_on:
@@ -54,7 +55,11 @@ services:
         condition: service_started
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8081/health || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:8081/health || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -73,17 +78,22 @@ services:
     environment:
       - ASPNETCORE_URLS=http://+:8082
       - ENV=${ENV}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://172.17.0.1:4317
-      - OTEL_RESOURCE_ATTRIBUTES=service.name=notifications-service,service.version=1.0.0,deployment.environment=dev,tenant=default
+      - TENANT_ID=${TENANT_ID}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=notifications-service,service.version=1.0.0,deployment.environment=${ENV},tenant_id=${TENANT_ID},service.country=${LOCAL_COUNTRY}
       - OTEL_SERVICE_NAME=notifications-service
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=ordersdb;Username=postgres;Password=postgres123
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8082/health || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:8082/health || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s
 
   orders-testing:
     image: orders-testing
@@ -99,6 +109,6 @@ services:
       - ./orders-testing:/app/test/orders-testing
     depends_on:
       orders:
-        condition: service_healthy
+        condition: service_started
       notifications:
-        condition: service_healthy
+        condition: service_started

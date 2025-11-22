@@ -20,19 +20,19 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Definimos el Resource una sola vez
 var environment = Environment.GetEnvironmentVariable("ENV") ?? "dev";
-var tenant = Environment.GetEnvironmentVariable("TENANT") ?? "default";
+var tenantId = Environment.GetEnvironmentVariable("TENANT_ID") ?? "default";
 var resource = ResourceBuilder.CreateEmpty()
     .AddService(serviceName: "orders-service", serviceVersion: "1.0.0")
     .AddAttributes(new[] {
         new KeyValuePair<string, object>("deployment.environment", environment),
-        new KeyValuePair<string, object>("tenant", tenant)
+        new KeyValuePair<string, object>("tenant_id", tenantId)
     });
 
 Log.Logger = new LoggerConfiguration()
     .Enrich.FromLogContext()
     .Enrich.WithProperty("service_name", "orders-service")
     .Enrich.WithProperty("service_version", "1.0.0")
-    .Enrich.WithProperty("tenant", tenant)
+    .Enrich.WithProperty("tenant_id", tenantId)
     .Enrich.WithProperty("ApplicationId", "orders-service")
     .Enrich.WithProperty("ApplicationName", "Orders Service")
     .Enrich.WithProperty("Environment", environment)
@@ -43,13 +43,13 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.Console(new CompactJsonFormatter())
     .WriteTo.OpenTelemetry(options =>
     {
-        options.Endpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://172.17.0.1:4317";
+        options.Endpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://localhost:4317";
         options.ResourceAttributes = new Dictionary<string, object>
         {
             { "service.name", "orders-service" },
             { "service.version", "1.0.0" },
             { "deployment.environment", environment },
-            { "tenant", tenant }
+            { "tenant_id", tenantId }
         };
     })
     .CreateLogger();
@@ -81,7 +81,7 @@ builder.Services.AddOpenTelemetry()
         .AddNpgsql()
         .AddOtlpExporter(options =>
         {
-            options.Endpoint = new Uri(Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://172.17.0.1:4317");
+            options.Endpoint = new Uri(Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://localhost:4317");
         }))
 
     // --- METRICS ---
@@ -93,7 +93,7 @@ builder.Services.AddOpenTelemetry()
         .AddProcessInstrumentation()
         .AddOtlpExporter(options =>
         {
-            options.Endpoint = new Uri(Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://172.17.0.1:4317");
+            options.Endpoint = new Uri(Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://localhost:4317");
         }));
 
 // // --- LOGGING ---
