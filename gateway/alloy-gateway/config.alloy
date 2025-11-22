@@ -146,6 +146,16 @@ prometheus.relabel "local_metrics" {
     target_label = "tenant_id"
     replacement  = env("TENANT_ID")
   }
+
+  rule {
+    target_label = "collector"
+    replacement  = "gateway"
+  }
+
+  rule {
+    target_label = "collector_instance"
+    replacement  = constants.hostname
+  }
 }
 
 // Recolecta métricas de Node Exporter del gateway
@@ -170,6 +180,16 @@ prometheus.relabel "gateway_metrics" {
   rule {
     target_label = "tenant_id"
     replacement  = env("TENANT_ID")
+  }
+
+  rule {
+    target_label = "collector"
+    replacement  = "gateway"
+  }
+
+  rule {
+    target_label = "collector_instance"
+    replacement  = constants.hostname
   }
 }
 

@@ -20,6 +20,7 @@ services:
     environment:
       - LOCAL_COUNTRY=${LOCAL_COUNTRY}
       - TENANT_ID=${TENANT_ID}
+      - COLLECTOR_NAME=${COLLECTOR_NAME}
       - GATEWAY_OTLP_ENDPOINT=${GATEWAY_OTLP_ENDPOINT}
     volumes:
       - ./alloy-agent/config.alloy:/etc/alloy/config.alloy:ro

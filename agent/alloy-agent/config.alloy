@@ -56,6 +56,26 @@ prometheus.relabel "node_exporter" {
     target_label = "tenant_id"
     replacement  = env("TENANT_ID")
   }
+
+  rule {
+    target_label = "collector"
+    replacement  = "agent"
+  }
+
+  rule {
+    target_label = "collector_name"
+    replacement  = env("COLLECTOR_NAME")
+  }
+
+  rule {
+    target_label = "collector_instance"
+    replacement  = constants.hostname
+  }
+
+  rule {
+    target_label = "collector_country"
+    replacement  = env("LOCAL_COUNTRY")
+  }
 }
 
 // Scraping de cadvisor
@@ -77,6 +97,26 @@ prometheus.relabel "cadvisor" {
   rule {
     target_label = "tenant_id"
     replacement  = env("TENANT_ID")
+  }
+
+  rule {
+    target_label = "collector"
+    replacement  = "agent"
+  }
+
+  rule {
+    target_label = "collector_name"
+    replacement  = env("COLLECTOR_NAME")
+  }
+
+  rule {
+    target_label = "collector_instance"
+    replacement  = constants.hostname
+  }
+
+  rule {
+    target_label = "collector_country"
+    replacement  = env("LOCAL_COUNTRY")
   }
 } // Receiver: convierte métricas Prometheus a OTLP
 otelcol.receiver.prometheus "metrics" {
