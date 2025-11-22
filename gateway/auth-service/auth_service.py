@@ -90,14 +90,28 @@ def validate_token(token):
 def authz():
     """
     Endpoint para Envoy ext_authz
-    Valida JWT y extrae tenant_id
+    Valida JWT y extrae tenant_id, o usa header X-Tenant-ID como fallback
     """
     try:
-        # Obtener el token del header Authorization
+        # Prioridad 1: Obtener tenant desde header X-Tenant-ID (simple, sin auth)
+        tenant_from_header = request.headers.get('X-Tenant-ID', '').strip()
+
+        if tenant_from_header:
+            logger.info(f"Using tenant from X-Tenant-ID header: {tenant_from_header}")
+            return jsonify({
+                'result': {
+                    'allowed': True,
+                    'headers': {
+                        'x-scope-orgid': tenant_from_header
+                    }
+                }
+            }), 200
+
+        # Prioridad 2: Obtener el token del header Authorization (JWT auth)
         auth_header = request.headers.get('Authorization', '')
 
         if not auth_header.startswith('Bearer '):
-            logger.warning("No Bearer token found, using default tenant")
+            logger.warning("No Bearer token or X-Tenant-ID found, using default tenant")
             # Sin autenticación, usar tenant por defecto
             return jsonify({
                 'result': {

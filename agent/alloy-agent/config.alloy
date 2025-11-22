@@ -109,6 +109,9 @@ otelcol.exporter.otlp "gateway_otlp" {
     tls {
       insecure = true
     }
+    headers = {
+      "X-Tenant-ID" = env("TENANT_ID"),
+    }
   }
 }
 
