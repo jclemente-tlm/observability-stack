@@ -1,22 +1,22 @@
 //=============================================================================
-// CONFIGURACI\u00d3N GLOBAL
+// CONFIGURACIÓN GLOBAL
 //=============================================================================
 
 logging {
   level    = env("LOG_LEVEL")
-  write_to = [loki.write.central_loki.receiver]
+  write_to = [loki.relabel.agent_logs.receiver]
 }
 
 tracing {
   sampling_fraction = 1.0
-  write_to          = [otelcol.exporter.otlp.central_gateway.input]
+  write_to          = [otelcol.exporter.otlp.gateway_otlp.input]
 }
 
 //=============================================================================
-// 1. RECEIVERS - Recepci\u00f3n de telemetr\u00eda
+// 1. RECEIVERS - Recepción de telemetría
 //=============================================================================
 
-// 1.1 Recibe telemetr\u00eda OTLP de aplicaciones locales (gRPC y HTTP)
+// 1.1 Recibe telemetría OTLP de aplicaciones locales (gRPC y HTTP)
 otelcol.receiver.otlp "agent_receiver" {
   grpc {
     endpoint = "0.0.0.0:4317"
@@ -27,16 +27,16 @@ otelcol.receiver.otlp "agent_receiver" {
   }
 
   output {
-    metrics = [otelcol.processor.attributes.add_metadata.input]
-    logs    = [otelcol.processor.attributes.add_metadata.input]
-    traces  = [otelcol.processor.attributes.add_metadata.input]
+    metrics = [otelcol.processor.attributes.add_collector_info.input]
+    logs    = [otelcol.processor.attributes.add_collector_info.input]
+    traces  = [otelcol.processor.attributes.add_collector_info.input]
   }
 }
 
-// 1.2 Convierte m\u00e9tricas Prometheus a formato OTLP
+// 1.2 Convierte métricas Prometheus a formato OTLP
 otelcol.receiver.prometheus "agent_prometheus_converter" {
   output {
-    metrics = [otelcol.processor.attributes.add_metadata.input]
+    metrics = [otelcol.processor.attributes.add_collector_info.input]
   }
 }
 
@@ -44,8 +44,8 @@ otelcol.receiver.prometheus "agent_prometheus_converter" {
 // 2. PROCESSORS - Procesamiento y enriquecimiento
 //=============================================================================
 
-// Agrega metadata de contexto: pa\u00eds, ambiente, sistema, collector
-otelcol.processor.attributes "add_metadata" {
+// Agrega información de identificación: tenant, collector, país, instancia
+otelcol.processor.attributes "add_collector_info" {
   action {
     key    = "service.name"
     value  = "alloy-agent"
@@ -53,20 +53,8 @@ otelcol.processor.attributes "add_metadata" {
   }
 
   action {
-    key    = "country_code"
-    value  = env("COUNTRY_CODE")
-    action = "insert"
-  }
-
-  action {
-    key    = "environment"
-    value  = env("ENVIRONMENT")
-    action = "insert"
-  }
-
-  action {
-    key    = "system_name"
-    value  = env("SYSTEM_NAME")
+    key    = "tenant_id"
+    value  = env("TENANT_ID")
     action = "insert"
   }
 
@@ -88,6 +76,12 @@ otelcol.processor.attributes "add_metadata" {
     action = "insert"
   }
 
+  action {
+    key    = "collector_country"
+    value  = env("COUNTRY_CODE")
+    action = "insert"
+  }
+
   output {
     metrics = [otelcol.processor.batch.agent_batch.input]
     logs    = [otelcol.processor.batch.agent_batch.input]
@@ -95,46 +89,37 @@ otelcol.processor.attributes "add_metadata" {
   }
 }
 
-// Agrupa datos en lotes para optimizar el env\u00edo
+// Agrupa datos en lotes para optimizar el envío al gateway
 otelcol.processor.batch "agent_batch" {
-  timeout          = "5s"
-  send_batch_size  = 1024
-  send_batch_max_size = 2048
-
   output {
-    metrics = [otelcol.exporter.otlp.central_gateway.input]
-    logs    = [otelcol.exporter.otlp.central_gateway.input]
-    traces  = [otelcol.exporter.otlp.central_gateway.input]
+    metrics = [otelcol.exporter.otlp.gateway_otlp.input]
+    logs    = [otelcol.exporter.otlp.gateway_otlp.input]
+    traces  = [otelcol.exporter.otlp.gateway_otlp.input]
   }
 }
 
 //=============================================================================
-// 3. EXPORTERS - Exportaci\u00f3n al Gateway central (Envoy)
+// 3. EXPORTERS - Exportación al Gateway central
 //=============================================================================
 
-// Env\u00eda toda la telemetr\u00eda al Gateway central v\u00eda OTLP
-otelcol.exporter.otlp "central_gateway" {
+// Envía toda la telemetría al Gateway central vía OTLP
+otelcol.exporter.otlp "gateway_otlp" {
   client {
     endpoint = env("GATEWAY_OTLP_ENDPOINT")
     tls {
       insecure = true
     }
     headers = {
-      "X-Country"     = env("COUNTRY_CODE"),
-      "X-Environment" = env("ENVIRONMENT"),
-      "X-System"      = env("SYSTEM_NAME"),
+      "X-Tenant-ID" = env("TENANT_ID"),
     }
-    // JWT o API-Key seg\u00fan AUTH_MODE
-    // Si AUTH_MODE=jwt, agregar: "Authorization" = "Bearer ${KEYCLOAK_TOKEN}"
-    // Si AUTH_MODE=apikey, agregar: "X-API-Key" = "${API_KEY}"
   }
 }
 
 //=============================================================================
-// 4. SCRAPING - Recolecci\u00f3n de m\u00e9tricas Prometheus
+// 4. SCRAPING - Recolección de métricas Prometheus
 //=============================================================================
 
-// 4.1 M\u00e9tricas del propio Agent (autoinstrumentaci\u00f3n)
+// 4.1 Métricas del propio Agent (autoinstrumentación)
 prometheus.exporter.self "agent_self" {}
 
 prometheus.scrape "agent_self" {
@@ -146,18 +131,8 @@ prometheus.relabel "agent_self_metrics" {
   forward_to = [otelcol.receiver.prometheus.agent_prometheus_converter.receiver]
 
   rule {
-    target_label = "country_code"
-    replacement  = env("COUNTRY_CODE")
-  }
-
-  rule {
-    target_label = "environment"
-    replacement  = env("ENVIRONMENT")
-  }
-
-  rule {
-    target_label = "system_name"
-    replacement  = env("SYSTEM_NAME")
+    target_label = "tenant_id"
+    replacement  = env("TENANT_ID")
   }
 
   rule {
@@ -174,9 +149,14 @@ prometheus.relabel "agent_self_metrics" {
     target_label = "collector_instance"
     replacement  = constants.hostname
   }
+
+  rule {
+    target_label = "collector_country"
+    replacement  = env("COUNTRY_CODE")
+  }
 }
 
-// 4.2 M\u00e9tricas de infraestructura (Node Exporter y cAdvisor)
+// 4.2 Métricas de infraestructura (Node Exporter y cAdvisor)
 prometheus.scrape "agent_node_exporter" {
   targets = [
     { "__address__" = "node-exporter:9100", "job" = "node_exporter" },
@@ -195,18 +175,8 @@ prometheus.relabel "agent_infra_metrics" {
   forward_to = [otelcol.receiver.prometheus.agent_prometheus_converter.receiver]
 
   rule {
-    target_label = "country_code"
-    replacement  = env("COUNTRY_CODE")
-  }
-
-  rule {
-    target_label = "environment"
-    replacement  = env("ENVIRONMENT")
-  }
-
-  rule {
-    target_label = "system_name"
-    replacement  = env("SYSTEM_NAME")
+    target_label = "tenant_id"
+    replacement  = env("TENANT_ID")
   }
 
   rule {
@@ -222,6 +192,11 @@ prometheus.relabel "agent_infra_metrics" {
   rule {
     target_label = "collector_instance"
     replacement  = constants.hostname
+  }
+
+  rule {
+    target_label = "collector_country"
+    replacement  = env("COUNTRY_CODE")
   }
 }
 
@@ -241,18 +216,8 @@ loki.relabel "agent_logs" {
   }
 
   rule {
-    target_label = "country_code"
-    replacement  = env("COUNTRY_CODE")
-  }
-
-  rule {
-    target_label = "environment"
-    replacement  = env("ENVIRONMENT")
-  }
-
-  rule {
-    target_label = "system_name"
-    replacement  = env("SYSTEM_NAME")
+    target_label = "tenant_id"
+    replacement  = env("TENANT_ID")
   }
 
   rule {
@@ -265,17 +230,22 @@ loki.relabel "agent_logs" {
     replacement  = env("COLLECTOR_NAME")
   }
 
-  forward_to = [loki.write.central_loki.receiver]
+  rule {
+    target_label = "collector_instance"
+    replacement  = constants.hostname
+  }
+
+  rule {
+    target_label = "collector_country"
+    replacement  = env("COUNTRY_CODE")
+  }
+
+  forward_to = [loki.write.gateway_loki.receiver]
 }
 
-// Logs al servidor central via HTTP
-loki.write "central_loki" {
+loki.write "gateway_loki" {
   endpoint {
-    url = "http://" + env("GATEWAY_HOST") + ":3100/loki/api/v1/push"
-    headers = {
-      "X-Country"     = env("COUNTRY_CODE"),
-      "X-Environment" = env("ENVIRONMENT"),
-      "X-System"      = env("SYSTEM_NAME"),
-    }
+    url = "http://" + env("DOCKER_GATEWAY_IP") + ":3100/loki/api/v1/push"
+    tenant_id = env("TENANT_ID")
   }
 }

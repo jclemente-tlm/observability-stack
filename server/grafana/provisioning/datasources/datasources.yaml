@@ -1,0 +1,164 @@
+apiVersion: 1
+
+datasources:
+  # ============================================================================
+  # MIMIR (M\u00e9tricas) - Aislamiento por AMBIENTE
+  # ============================================================================
+  - name: mimir-dev
+    type: prometheus
+    uid: mimir-dev
+    url: http://mimir:9009/prometheus
+    isDefault: false
+    jsonData:
+      httpHeaderName1: "X-Scope-OrgID"
+      timeInterval: "30s"
+    secureJsonData:
+      httpHeaderValue1: "talma-dev"
+
+  - name: mimir-qa
+    type: prometheus
+    uid: mimir-qa
+    url: http://mimir:9009/prometheus
+    isDefault: false
+    jsonData:
+      httpHeaderName1: "X-Scope-OrgID"
+      timeInterval: "30s"
+    secureJsonData:
+      httpHeaderValue1: "talma-qa"
+
+  - name: mimir-prod
+    type: prometheus
+    uid: mimir-prod
+    url: http://mimir:9009/prometheus
+    isDefault: true
+    jsonData:
+      httpHeaderName1: "X-Scope-OrgID"
+      timeInterval: "15s"
+    secureJsonData:
+      httpHeaderValue1: "talma-prod"
+
+  # ============================================================================
+  # LOKI (Logs) - Aislamiento por PA\u00cdS
+  # ============================================================================
+  - name: loki-pe
+    type: loki
+    uid: loki-pe
+    url: http://loki:3100
+    isDefault: false
+    jsonData:
+      maxLines: 5000
+      httpHeaderName1: "X-Scope-OrgID"
+    secureJsonData:
+      httpHeaderValue1: "talma-pe"
+
+  - name: loki-mx
+    type: loki
+    uid: loki-mx
+    url: http://loki:3100
+    isDefault: false
+    jsonData:
+      maxLines: 5000
+      httpHeaderName1: "X-Scope-OrgID"
+    secureJsonData:
+      httpHeaderValue1: "talma-mx"
+
+  - name: loki-co
+    type: loki
+    uid: loki-co
+    url: http://loki:3100
+    isDefault: false
+    jsonData:
+      maxLines: 5000
+      httpHeaderName1: "X-Scope-OrgID"
+    secureJsonData:
+      httpHeaderValue1: "talma-co"
+
+  # ============================================================================
+  # TEMPO (Traces) - Aislamiento por SISTEMA-AMBIENTE
+  # ============================================================================
+  - name: tempo-ecommerce-prod
+    type: tempo
+    uid: tempo-ecommerce-prod
+    url: http://tempo:3200
+    isDefault: false
+    jsonData:
+      httpMethod: GET
+      tracesToLogsV2:
+        datasourceUid: loki-pe
+        spanStartTimeShift: "-1h"
+        spanEndTimeShift: "1h"
+        filterByTraceID: true
+        filterBySpanID: true
+      tracesToMetrics:
+        datasourceUid: mimir-prod
+      httpHeaderName1: "X-Scope-OrgID"
+    secureJsonData:
+      httpHeaderValue1: "ecommerce-prod"
+
+  - name: tempo-payments-prod
+    type: tempo
+    uid: tempo-payments-prod
+    url: http://tempo:3200
+    isDefault: false
+    jsonData:
+      httpMethod: GET
+      tracesToLogsV2:
+        datasourceUid: loki-mx
+        spanStartTimeShift: "-1h"
+        spanEndTimeShift: "1h"
+        filterByTraceID: true
+        filterBySpanID: true
+      tracesToMetrics:
+        datasourceUid: mimir-prod
+      httpHeaderName1: "X-Scope-OrgID"
+    secureJsonData:
+      httpHeaderValue1: "payments-prod"
+
+  - name: tempo-logistics-qa
+    type: tempo
+    uid: tempo-logistics-qa
+    url: http://tempo:3200
+    isDefault: false
+    jsonData:
+      httpMethod: GET
+      tracesToLogsV2:
+        datasourceUid: loki-co
+        spanStartTimeShift: "-1h"
+        spanEndTimeShift: "1h"
+        filterByTraceID: true
+        filterBySpanID: true
+      tracesToMetrics:
+        datasourceUid: mimir-qa
+      httpHeaderName1: "X-Scope-OrgID"
+    secureJsonData:
+      httpHeaderValue1: "logistics-qa"
+
+  # ============================================================================
+  # DATASOURCES GLOBALES (sin aislamiento - para admin)
+  # ============================================================================
+  - name: mimir-all
+    type: prometheus
+    uid: mimir-all
+    url: http://mimir:9009/prometheus
+    isDefault: false
+    jsonData:
+      timeInterval: "15s"
+    # Sin X-Scope-OrgID - requiere auth especial
+
+  - name: loki-all
+    type: loki
+    uid: loki-all
+    url: http://loki:3100
+    isDefault: false
+    jsonData:
+      maxLines: 5000
+    # Sin X-Scope-OrgID - requiere auth especial
+
+  - name: tempo-all
+    type: tempo
+    uid: tempo-all
+    url: http://tempo:3200
+    isDefault: false
+    jsonData:
+      httpMethod: GET
+    # Sin X-Scope-OrgID - requiere auth especial

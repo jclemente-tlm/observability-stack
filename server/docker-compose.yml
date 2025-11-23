@@ -19,33 +19,12 @@ x-default-logging: &logging
     tag: "{{.Name}}"
 
 services:
-  # Auth Service - Valida JWT de Keycloak para Envoy ext_authz
-  auth-service:
-    build: ./auth-service
-    container_name: ${COMPOSE_PROJECT_NAME}-auth-service
-    restart: unless-stopped
-    mem_limit: 256m
-    environment:
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: observability
-      DEFAULT_TENANT: ${TENANT_ID}
-    networks:
-      - observability
-    depends_on:
-      - keycloak
-    logging: *logging
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # Envoy Proxy - Punto de entrada para OTLP con routing multi-tenant
+  # Envoy Gateway - Punto de entrada OTLP con autenticación JWT/API-Key
   envoy:
     image: envoyproxy/envoy:v1.31-latest
     container_name: ${COMPOSE_PROJECT_NAME}-envoy
     restart: unless-stopped
-    mem_limit: 256m
+    mem_limit: 512m
     volumes:
       - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
     command: ["-c", "/etc/envoy/envoy.yaml"]
@@ -56,40 +35,10 @@ services:
     networks:
       - observability
     depends_on:
-      - alloy-gateway
-      - auth-service
-    logging: *logging
-
-  alloy-gateway:
-    image: grafana/alloy:v1.11.3
-    container_name: ${COMPOSE_PROJECT_NAME}-alloy-gateway
-    restart: unless-stopped
-    # mem_limit: ${ALLOY_MEM_LIMIT}
-    environment:
-      - TENANT_ID=${TENANT_ID}
-      - COUNTRY_CODE=${COUNTRY_CODE}
-      - COLLECTOR_NAME=${COLLECTOR_NAME}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    volumes:
-      - ./alloy-gateway/config.alloy:/etc/alloy/config.alloy:ro
-    command:
-      [
-        "run",
-        "/etc/alloy/config.alloy",
-        "--server.http.listen-addr=0.0.0.0:5000",
-      ]
-    ports:
-      - "14317:14317" # OTLP gRPC (interno, desde Envoy)
-      - "14318:14318" # OTLP HTTP (interno, desde Envoy)
-      - "5000:5000"
-    networks:
-      observability:
-        aliases:
-          - alloy
-    depends_on:
       - loki
-      - tempo
       - mimir
+      - tempo
+      - keycloak
     logging: *logging
 
   loki:
@@ -102,7 +51,9 @@ services:
       - loki_data:/loki
     command: -config.file=/etc/loki/config.yaml
     ports:
-      - "3100:3100"
+      - "3100:3100" # HTTP
+      - "9096:9096" # gRPC
+      - "4329:4317" # OTLP gRPC (logs)
     networks:
       - observability
     logging: *logging
@@ -117,8 +68,10 @@ services:
       - tempo_data:/var/tempo
     command: -config.file=/etc/tempo/config.yaml
     ports:
-      - "4327:4317"
-      - "3200:3200"
+      - "4317:4317" # OTLP gRPC (traces)
+      - "4318:4318" # OTLP HTTP (traces)
+      - "3200:3200" # HTTP
+      - "9095:9095" # gRPC
     networks:
       observability:
         aliases:
@@ -132,10 +85,14 @@ services:
     # mem_limit: ${MIMIR_MEM_LIMIT}
     volumes:
       - ./mimir/config.yaml:/etc/mimir/config.yaml:ro
+      - ./mimir/overrides.yaml:/etc/mimir/overrides.yaml:ro
       - mimir_data:/data
     command: -config.file=/etc/mimir/config.yaml
     ports:
-      - "9009:9009"
+      - "9009:9009" # Prometheus Remote Write / Query
+      - "9095:9095" # gRPC
+      - "4327:4317" # OTLP gRPC
+      - "4328:4318" # OTLP HTTP
     networks:
       - observability
     logging: *logging
@@ -159,28 +116,8 @@ services:
       - observability
     logging: *logging
 
-  node-exporter:
-    image: prom/node-exporter:v1.10.2
-    container_name: ${COMPOSE_PROJECT_NAME}-node-exporter
-    restart: unless-stopped
-    # mem_limit: ${NODE_EXPORTER_MEM_LIMIT}
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    command:
-      - --path.procfs=/host/proc
-      - --path.sysfs=/host/sys
-      - --path.rootfs=/rootfs
-      - --collector.filesystem.ignored-mount-points="^/(sys|proc|dev|run|var/lib/docker/.+)($|/)"
-    ports:
-      - "9100:9100"
-    networks:
-      - observability
-    logging: *logging
-
   # ============================================================================
-  # KEYCLOAK - Identity and Access Management (preparado, auth opcional)
+  # KEYCLOAK - Identity and Access Management
   # ============================================================================
   keycloak-db:
     image: postgres:16-alpine
@@ -226,21 +163,4 @@ services:
       - observability
     depends_on:
       - keycloak-db
-    logging: *logging
-
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.52.0
-    container_name: ${COMPOSE_PROJECT_NAME}-cadvisor
-    restart: unless-stopped
-    # mem_limit: ${CADVISOR_MEM_LIMIT}
-    privileged: true
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-    ports:
-      - "8080:8080"
-    networks:
-      - observability
     logging: *logging

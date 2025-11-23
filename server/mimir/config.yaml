@@ -1,0 +1,42 @@
+# Modo multitenant habilitado - Aislamiento por ambiente (talma-dev, talma-qa, talma-prod)
+multitenancy_enabled: true
+
+server:
+  http_listen_port: 9009
+  grpc_listen_port: 9095
+  log_level: info
+
+# Soporte OTLP para recibir métricas directamente
+distributor:
+  ring:
+    kvstore:
+      store: inmemory
+  # OTLP receivers
+  otlp:
+    grpc:
+      enabled: true
+      endpoint: 0.0.0.0:4317
+    http:
+      enabled: true
+      endpoint: 0.0.0.0:4318
+
+ingester:
+  ring:
+    kvstore:
+      store: inmemory
+    replication_factor: 1
+
+# Filesystem storage para desarrollo
+blocks_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/mimir
+
+# Límites por tenant (ambiente)
+limits:
+  max_global_series_per_user: 500000
+  ingestion_rate: 200000
+  ingestion_burst_size: 400000
+  max_label_names_per_series: 50
+  # Límites específicos por tenant
+  per_tenant_override_config: /etc/mimir/overrides.yaml

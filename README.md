@@ -1,357 +1,365 @@
-# Observability Stack - Multi-Tenant con Autenticación JWT
+# Observability Stack - Arquitectura Multi-Tenant Simplificada
 
-Stack de observabilidad basado en Grafana Alloy, Mimir, Loki y Tempo con soporte multi-tenant nativo y autenticación JWT vía Keycloak.
+Stack de observabilidad empresarial con aislamiento inteligente por tipo de señal: logs por país, métricas por ambiente, traces por sistema.
 
-## 📋 Características
+## 🎯 Características
 
-- ✅ **Multi-tenancy nativo**: Aislamiento completo por tenant (PE, MX, CO)
-- ✅ **Autenticación JWT**: Keycloak + Envoy ext_authz
-- ✅ **Gateway centralizado**: Arquitectura hub-and-spoke con Grafana Alloy
-- ✅ **OTLP nativo**: Soporte completo para OpenTelemetry Protocol
-- ✅ **Correlación automática**: Traces ↔ Logs ↔ Metrics
-- ✅ **Escalabilidad horizontal**: Diseñado para múltiples agents distribuidos
+- ✅ **Aislamiento por tipo de señal**: Logs→País, Metrics→Ambiente, Traces→Sistema
+- ✅ **Autenticación híbrida**: JWT (Keycloak) para externos + API-Key para internos
+- ✅ **Sin intermediarios**: Agents → Envoy → Backends directo
+- ✅ **Multitenancy nativo**: Loki, Mimir y Tempo con tenants independientes
+- ✅ **OTLP completo**: Soporte nativo para OpenTelemetry Protocol
+- ✅ **Escalabilidad**: Arquitectura distribuida para múltiples países y ambientes
 
 ## 🏗️ Arquitectura
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      TENANT AGENTS                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │ Alloy Agent  │  │ Alloy Agent  │  │ Alloy Agent  │      │
-│  │  (tenant-pe) │  │  (tenant-mx) │  │  (tenant-co) │      │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘      │
-│         │ JWT (tenant_id)  │                 │              │
-└─────────┼──────────────────┼─────────────────┼──────────────┘
-          │                  │                 │
-          ▼                  ▼                 ▼
-    ┌────────────────────────────────────────────────┐
-    │           Envoy Proxy (Port 4317/4318)         │
-    │  ┌──────────────────────────────────────────┐  │
-    │  │  ext_authz → Auth Service → Keycloak     │  │
-    │  │  Extrae tenant_id del JWT                │  │
-    │  │  Agrega X-Scope-OrgID header             │  │
-    │  └──────────────────────────────────────────┘  │
-    └────────────────────┬───────────────────────────┘
-                         │
+┌────────────────────────────────────────────────────────────┐
+│  AGENTS (distribuidos por país/ambiente/sistema)          │
+│                                                            │
+│  Agent PE-PROD-Ecommerce   Agent MX-QA-Payments          │
+│  country=PE                country=MX                     │
+│  environment=prod          environment=qa                 │
+│  system=ecommerce          system=payments                │
+│  auth=JWT (externo)        auth=API-Key (interno)         │
+└─────────────┬──────────────────────┬───────────────────────┘
+              │                      │
+              │  OTLP + Headers      │
+              │  X-Country           │
+              │  X-Environment       │
+              │  X-System            │
+              └──────────┬───────────┘
                          ▼
-          ┌──────────────────────────────┐
-          │  Alloy Gateway (14317/14318) │
-          │  - Procesamiento              │
-          │  - Enriquecimiento            │
-          │  - Batching                   │
-          └──────────┬───────────────────┘
-                     │
-        ┏━━━━━━━━━━━━┻━━━━━━━━━━━━┓
-        ▼            ▼             ▼
-   ┌────────┐  ┌────────┐   ┌────────┐
-   │ Mimir  │  │  Loki  │   │ Tempo  │
-   │(Metrics│  │ (Logs) │   │(Traces)│
-   └────────┘  └────────┘   └────────┘
-        │            │             │
-        └────────────┴─────────────┘
-                     │
-              ┌──────▼──────┐
-              │   Grafana   │
-              │ (13 DS x 3) │
-              └─────────────┘
+            ┌────────────────────────┐
+            │   ENVOY GATEWAY        │
+            │                        │
+            │  jwt_authn filter      │ ← Valida JWT con Keycloak
+            │  lua filter            │ ← Extrae headers, enruta
+            │                        │
+            │  Routing inteligente:  │
+            │  • Logs   → X-Scope-OrgID: talma-{country}     │
+            │  • Metrics→ X-Scope-OrgID: talma-{environment} │
+            │  • Traces → X-Scope-OrgID: {system}-{environment} │
+            └───────────┬────────────┘
+                        │
+            ┌───────────┼────────────┐
+            ▼           ▼            ▼
+      ┌─────────┐ ┌─────────┐ ┌──────────┐
+      │  Loki   │ │  Mimir  │ │  Tempo   │
+      │         │ │         │ │          │
+      │ talma-  │ │ talma-  │ │ ecommerce│
+      │   pe    │ │   dev   │ │   -prod  │
+      │   mx    │ │   qa    │ │ payments │
+      │   co    │ │   prod  │ │   -prod  │
+      └─────────┘ └─────────┘ └──────────┘
+           ▲           ▲            ▲
+           └───────────┴────────────┘
+                       │
+                ┌──────▼──────┐
+                │   Grafana   │
+                │ 3+3+N DSs   │
+                └─────────────┘
 ```
+
+## 📊 Patrón de Aislamiento
+
+### 1. Logs → Por PAÍS 🌍
+
+**Razón**: Compliance legal (GDPR, LGPD), auditoría por jurisdicción
+
+- `talma-pe` - Logs de Perú
+- `talma-mx` - Logs de México
+- `talma-co` - Logs de Colombia
+
+**Labels adicionales**: `country_code`, `environment`, `system_name`
+
+### 2. Métricas → Por AMBIENTE 🔧
+
+**Razón**: Infraestructura compartida, alertas globales por ambiente
+
+- `talma-dev` - Métricas de desarrollo
+- `talma-qa` - Métricas de QA
+- `talma-prod` - Métricas de producción
+
+**Labels adicionales**: `country_code`, `system_name`
+
+### 3. Traces → Por SISTEMA 🔗
+
+**Razón**: Seguimiento de transacciones distribuidas, debugging
+
+- `ecommerce-prod` - Traces del sistema e-commerce
+- `payments-prod` - Traces del sistema de pagos
+- `logistics-qa` - Traces de logística en QA
+
+**Labels adicionales**: `country_code`, `environment`
 
 ## 🚀 Quick Start
 
-### 1. Iniciar el Gateway
+### 1. Iniciar el Server Central
 
 ```bash
-cd gateway
+cd server
+cp .env.example .env
+# Editar .env si es necesario
+
 docker compose up -d
 ```
 
 **Servicios disponibles:**
-- Grafana: http://localhost:3000 (auto-login)
-- Keycloak: http://localhost:8090 (admin/admin)
-- Envoy Admin: http://localhost:9901
-- Alloy Gateway UI: http://localhost:5000
 
-### 2. Configurar Keycloak
+- Grafana: <http://localhost:3000> (auto-login)
+- Envoy Admin: <http://localhost:9901>
+- Keycloak: <http://localhost:8090> (admin/admin)
+- Mimir: <http://localhost:9009>
+- Loki: <http://localhost:3100>
+- Tempo: <http://localhost:3200>
 
-Ver guía detallada: **[KEYCLOAK-SETUP.md](./KEYCLOAK-SETUP.md)**
-
-Pasos rápidos:
-1. Acceder a http://localhost:8090 (admin/admin)
-2. Crear realm `observability`
-3. Crear service account clients: `agent-pe`, `agent-mx`, `agent-co`
-4. Agregar mapper `tenant_id` a cada client
-5. Obtener client secrets
-
-### 3. Configurar y iniciar Agent
+### 2. Configurar Agent
 
 ```bash
 cd agent
+cp .env.example .env
 
-# Editar .env con las credenciales de Keycloak
+# Editar .env con la configuración del agent
 cat > .env <<EOF
-TENANT_ID=tenant-pe
-KEYCLOAK_URL=http://172.17.0.1:8090
-KEYCLOAK_REALM=observability
-KEYCLOAK_CLIENT_ID=agent-pe
-KEYCLOAK_CLIENT_SECRET=<obtener_de_keycloak>
-GATEWAY_OTLP_ENDPOINT=http://172.17.0.1:4317
+COMPOSE_PROJECT_NAME=agent-pe-prod-ecommerce
+COUNTRY_CODE=PE
+ENVIRONMENT=prod
+SYSTEM_NAME=ecommerce
+COLLECTOR_NAME=agent-pe-prod-ecommerce
+GATEWAY_OTLP_ENDPOINT=envoy.talma.com:4317
+AUTH_MODE=jwt
+KEYCLOAK_CLIENT_ID=agent-pe-prod
+KEYCLOAK_CLIENT_SECRET=<secret>
 EOF
 
-# Iniciar agent
 docker compose up -d
 ```
 
-### 4. Verificar funcionamiento
+## 🔐 Autenticación
+
+### Para Agents Externos (otros países)
+
+Usa JWT de Keycloak:
 
 ```bash
-# Obtener token JWT
+# Obtener token
+curl -X POST http://keycloak:8090/realms/observability/protocol/openid-connect/token \
+  -d "client_id=agent-pe-prod" \
+  -d "client_secret=<secret>" \
+  -d "grant_type=client_credentials"
+
+# El agent enviará el token en cada request
+# Envoy lo valida automáticamente
+```
+
+### Para Agents Internos (misma red)
+
+Usa API Key simple:
+
+```bash
+# En .env del agent
+AUTH_MODE=apikey
+API_KEY=<tu-api-key-segura>
+
+# El agent enviará: X-API-Key: <tu-api-key-segura>
+```
+
+## 📝 Variables de Entorno
+
+### Agent
+
+| Variable | Descripción | Ejemplo |
+|----------|-------------|---------|
+| `COUNTRY_CODE` | Código del país | `PE`, `MX`, `CO` |
+| `ENVIRONMENT` | Ambiente de ejecución | `dev`, `qa`, `prod` |
+| `SYSTEM_NAME` | Nombre del sistema | `ecommerce`, `payments`, `logistics` |
+| `GATEWAY_OTLP_ENDPOINT` | Endpoint del gateway | `envoy.talma.com:4317` |
+| `AUTH_MODE` | Modo de autenticación | `jwt` o `apikey` |
+| `KEYCLOAK_CLIENT_ID` | Client ID (si jwt) | `agent-pe-prod` |
+| `API_KEY` | API Key (si apikey) | `<key-segura>` |
+
+### Server
+
+| Variable | Descripción | Ejemplo |
+|----------|-------------|---------|
+| `KEYCLOAK_ADMIN` | Usuario admin de Keycloak | `admin` |
+| `KEYCLOAK_ADMIN_PASSWORD` | Password admin | `admin` |
+
+## 📦 Componentes
+
+### Server Central
+
+#### Envoy Gateway
+
+- **Puerto**: 4317 (gRPC), 4318 (HTTP)
+- **Función**: Entry point OTLP, auth JWT, routing multi-tenant
+- **Filters**: `jwt_authn` + `lua` para X-Scope-OrgID
+
+#### Loki (Logs)
+
+- **Puerto**: 3100 (HTTP), 9096 (gRPC), 4317 (OTLP)
+- **Tenants**: `talma-pe`, `talma-mx`, `talma-co`
+- **Retention**: 744h (31 días)
+
+#### Mimir (Metrics)
+
+- **Puerto**: 9009 (HTTP), 9095 (gRPC), 4317/4318 (OTLP)
+- **Tenants**: `talma-dev`, `talma-qa`, `talma-prod`
+- **Overrides**: Límites por tenant en `overrides.yaml`
+
+#### Tempo (Traces)
+
+- **Puerto**: 3200 (HTTP), 4317/4318 (OTLP)
+- **Tenants**: `{system}-{environment}` (ej: `ecommerce-prod`)
+- **Features**: Service graphs, span metrics
+
+#### Grafana
+
+- **Puerto**: 3000
+- **Datasources**:
+  - Logs: loki-pe, loki-mx, loki-co
+  - Metrics: mimir-dev, mimir-qa, mimir-prod
+  - Traces: tempo-{system}-{env}
+
+#### Keycloak
+
+- **Puerto**: 8090
+- **Realm**: `observability`
+- **Función**: Emisor de JWT tokens para agents externos
+
+### Agents (distribuidos)
+
+#### Grafana Alloy
+
+- **Puerto**: 4317/4318 (OTLP receiver)
+- **Función**: Recolección, procesamiento, enriquecimiento
+- **Exporta a**: Envoy Gateway central
+
+#### Node Exporter
+
+- **Puerto**: 9100
+- **Función**: Métricas de host (CPU, memoria, disco, red)
+
+#### cAdvisor
+
+- **Puerto**: 8080
+- **Función**: Métricas de contenedores Docker
+
+## 🔍 Consultas
+
+### Logs (por país)
+
+```logql
+# Logs de Perú
+{country_code="PE"} |= "error"
+
+# Logs de un sistema específico en México
+{country_code="MX", system_name="payments"} |= "transaction"
+```
+
+### Métricas (por ambiente)
+
+```promql
+# CPU de producción (todos los países)
+node_cpu_seconds_total{environment="prod"}
+
+# Métricas de un país específico en QA
+up{environment="qa", country_code="MX"}
+```
+
+### Traces (por sistema)
+
+```
+# En Grafana, seleccionar datasource: tempo-ecommerce-prod
+# Buscar por service.name, http.status_code, etc.
+```
+
+## 🛠️ Deployment
+
+### Escenario 1: Agent en Perú (Producción)
+
+```bash
 cd agent
-./get-token.sh
-
-# Ver logs del agent
-docker logs observability-agent --tail 50
-
-# Ver logs del gateway
-docker logs -f observability-alloy-gateway
-
-# Verificar en Grafana
-# http://localhost:3000 → Explore → Datasource: loki
-# Query: {service_name="alloy-agent"}
+cat > .env <<EOF
+COUNTRY_CODE=PE
+ENVIRONMENT=prod
+SYSTEM_NAME=ecommerce
+GATEWAY_OTLP_ENDPOINT=envoy.talma.com:4317
+AUTH_MODE=jwt
+KEYCLOAK_CLIENT_ID=agent-pe-prod
+KEYCLOAK_CLIENT_SECRET=<secret>
+EOF
+docker compose up -d
 ```
 
-## 📚 Documentación
-
-- **[README-MULTI-TENANT.md](./README-MULTI-TENANT.md)**: Arquitectura multi-tenant, datasources, labels estándar
-- **[KEYCLOAK-SETUP.md](./KEYCLOAK-SETUP.md)**: Configuración paso a paso de Keycloak y JWT
-- **[notas.txt](./notas.txt)**: Notas de desarrollo y troubleshooting
-
-## 🎯 Casos de Uso
-
-### Caso 1: Múltiples regiones geográficas
-Cada región (PE, MX, CO) tiene su propio tenant. Los datos se aíslan automáticamente por el header `X-Scope-OrgID` extraído del JWT.
-
-### Caso 2: Ambientes por cliente
-Cada cliente tiene su propio tenant. Facilita billing, reporting y compliance.
-
-### Caso 3: Multi-cluster Kubernetes
-Cada cluster tiene un agent con su tenant_id. Vista unificada en Grafana con datasources dedicados por cluster.
-
-## 🔐 Seguridad
-
-### Flujo de Autenticación
-
-1. **Agent obtiene JWT** de Keycloak (OAuth2 Client Credentials)
-2. **Agent envía OTLP** con header `Authorization: Bearer <JWT>`
-3. **Envoy valida JWT** vía ext_authz filter llamando al auth-service
-4. **Auth service** valida firma con Keycloak JWKS y extrae `tenant_id`
-5. **Envoy agrega header** `X-Scope-OrgID: tenant-xxx`
-6. **Gateway y backends** usan el header para aislamiento multi-tenant
-
-### Características de Seguridad
-
-- ✅ JWT con firma RSA256 (validado contra Keycloak JWKS)
-- ✅ Token expiration (default: 5 minutos)
-- ✅ Service accounts (no usuarios humanos)
-- ✅ Aislamiento por tenant en Mimir/Loki/Tempo
-- ⏸️ mTLS entre componentes (roadmap)
-- ⏸️ Rate limiting por tenant (roadmap)
-
-## 📊 Datasources en Grafana
-
-### Por Tenant
-
-Cada tenant tiene 3 datasources:
-
-**tenant-pe (default):**
-- `mimir` - Métricas de Perú
-- `loki` - Logs de Perú
-- `tempo` - Traces de Perú
-
-**tenant-mx:**
-- `mimir-mx` - Métricas de México
-- `loki-mx` - Logs de México
-- `tempo-mx` - Traces de México
-
-**tenant-co:**
-- `mimir-co` - Métricas de Colombia
-- `loki-co` - Logs de Colombia
-- `tempo-co` - Traces de Colombia
-
-### Vistas de Administración
-
-- `mimir-all` - Todas las métricas (sin filtro de tenant)
-- `loki-all` - Todos los logs
-- `tempo-all` - Todos los traces
-
-## 🏷️ Labels Estándar
-
-Toda la telemetría incluye automáticamente:
-
-```yaml
-tenant_id: tenant-pe          # Identificador de tenant
-collector: alloy              # Tipo de collector
-collector_name: agent-pe-default  # Nombre del collector
-collector_instance: host123   # Instancia específica
-collector_country: PE         # Código de país
-service.name: alloy-agent     # Nombre del servicio
-```
-
-## 🔧 Componentes
-
-| Componente | Puerto | Descripción |
-|------------|--------|-------------|
-| Envoy Proxy | 4317 (gRPC), 4318 (HTTP) | Entry point OTLP + Auth |
-| Alloy Gateway | 14317 (gRPC), 14318 (HTTP) | Procesamiento central |
-| Alloy Agent | 24317 (gRPC), 24318 (HTTP) | Recolección distribuida |
-| Keycloak | 8090 | Identity Provider |
-| Auth Service | 8000 | Validación JWT |
-| Grafana | 3000 | Visualización |
-| Mimir | 9009 | Métricas (TSDB) |
-| Loki | 3100 | Logs |
-| Tempo | 3200 | Traces |
-
-## 📝 Comandos Útiles
-
-### Logs
+### Escenario 2: Agent en México (QA)
 
 ```bash
-# Ver logs del gateway
-docker logs -f observability-alloy-gateway
-
-# Ver logs del agent
-docker logs -f observability-agent
-
-# Ver logs de Envoy
-docker logs -f observability-envoy
-
-# Ver logs del auth service
-docker logs -f observability-auth-service
-
-# Ver logs de Keycloak
-docker logs -f observability-keycloak
+cd agent
+cat > .env <<EOF
+COUNTRY_CODE=MX
+ENVIRONMENT=qa
+SYSTEM_NAME=payments
+GATEWAY_OTLP_ENDPOINT=172.17.0.1:4317
+AUTH_MODE=apikey
+API_KEY=<key-interna>
+EOF
+docker compose up -d
 ```
 
-### Testing
+## 🎓 Mejores Prácticas
 
-```bash
-# Obtener token JWT
-cd agent && ./get-token.sh
+1. **Logs por país**: Mantiene compliance legal y facilita auditorías
+2. **Métricas por ambiente**: Optimiza costos, un backend por ambiente
+3. **Traces por sistema**: Permite seguimiento completo de transacciones
+4. **JWT para externos**: Seguridad robusta, auditable, revocable
+5. **API-Key para internos**: Simplicidad, baja latencia
+6. **Labels consistentes**: Siempre incluir `country_code`, `environment`, `system_name`
 
-# Test del auth service
-TOKEN="<token>"
-curl -X POST http://localhost:8000/authz \
-  -H "Authorization: Bearer $TOKEN" \
-  -v
+## 📚 Documentación Adicional
 
-# Enviar métrica de prueba vía Envoy
-curl -X POST http://localhost:4318/v1/metrics \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"resourceMetrics":[...]}'
-
-# Verificar métricas en Mimir
-curl "http://localhost:9009/prometheus/api/v1/label/__name__/values" \
-  -H "X-Scope-OrgID: tenant-pe"
-```
-
-### Diagnóstico
-
-```bash
-# Estado de contenedores
-docker ps
-
-# Healthchecks
-docker ps --format "table {{.Names}}\t{{.Status}}"
-
-# Estadísticas de Envoy
-curl http://localhost:9901/stats | grep tenant
-
-# UI de Alloy Gateway
-open http://localhost:5000
-```
+- **KEYCLOAK-SETUP.md**: Configuración de clientes y tokens
+- **ESTADO-ACTUAL.md**: Estado del proyecto y próximos pasos
+- **Envoy Admin**: <http://localhost:9901> para debugging
 
 ## 🐛 Troubleshooting
 
-### Logs no llegan del agent
+### Agent no envía datos
 
-1. Verificar conectividad: `docker logs observability-agent | grep error`
-2. Verificar token JWT: `cd agent && ./get-token.sh`
-3. Verificar Envoy: `docker logs observability-envoy --tail 20`
-4. Verificar variable DOCKER_GATEWAY_IP en agent
+```bash
+# Verificar conectividad a Envoy
+curl -v http://envoy-host:4317
 
-### Token JWT inválido
+# Ver logs del agent
+docker compose logs -f alloy-agent
 
-1. Verificar que Keycloak está corriendo: `docker ps | grep keycloak`
-2. Verificar configuración del mapper en Keycloak
-3. Verificar client secret en `.env`
-4. Ver logs del auth-service: `docker logs observability-auth-service`
+# Verificar headers en Envoy
+curl http://localhost:9901/stats | grep jwt
+```
 
-### Métricas no aparecen en datasource específico
+### Datos no aparecen en Grafana
 
-1. Verificar que el JWT incluye el `tenant_id` correcto
-2. Verificar header `X-Scope-OrgID` en logs de Envoy
-3. Usar datasource `*-all` para ver todos los tenants
-4. Verificar que Mimir está recibiendo datos: `curl http://localhost:9009/prometheus/api/v1/label/__name__/values -H "X-Scope-OrgID: tenant-pe"`
+```bash
+# Verificar tenant en datasource
+# Logs: debe coincidir con talma-{COUNTRY_CODE}
+# Metrics: debe coincidir con talma-{ENVIRONMENT}
 
-Ver guía completa: **[README-MULTI-TENANT.md](./README-MULTI-TENANT.md#troubleshooting)**
+# Verificar labels
+# En Grafana Explore, revisar que existan labels:
+# country_code, environment, system_name
+```
 
-## 🗺️ Roadmap
+### JWT inválido
 
-### Fase 1 ✅ (Completada)
-- [x] Arquitectura gateway-centric
-- [x] Multi-tenancy con Envoy + ext_authz
-- [x] Keycloak + Auth Service
-- [x] 13 datasources configurados
+```bash
+# Obtener nuevo token
+./scripts/get-token.sh
 
-### Fase 2 ⏸️ (En progreso)
-- [ ] Configuración de Keycloak realm
-- [ ] Configuración de service account clients
-- [ ] Token refresh automático en agents
-- [ ] Testing end-to-end con JWT
-
-### Fase 3 (Futuro)
-- [ ] Grafana SSO con Keycloak
-- [ ] Rate limiting por tenant
-- [ ] mTLS entre componentes
-- [ ] Dashboards específicos por tenant
-- [ ] Alerting rules multi-tenant
-
-### Fase 4 (Producción)
-- [ ] High Availability (HA)
-- [ ] Disaster Recovery
-- [ ] Backup automatizado
-- [ ] Monitoring del stack
-- [ ] Compliance y auditoría
-
-## 🤝 Contribuir
-
-### Agregar un nuevo tenant
-
-Ver guía: **[README-MULTI-TENANT.md](./README-MULTI-TENANT.md#agregar-nuevo-tenant)**
-
-Pasos básicos:
-1. Crear client en Keycloak (`agent-xx`)
-2. Agregar mapper con `tenant_id: tenant-xx`
-3. Agregar 3 datasources en Grafana (mimir-xx, loki-xx, tempo-xx)
-4. Configurar nuevo agent con el client secret
-
-### Reportar issues
-
-Por favor incluir:
-- Logs relevantes (agent, gateway, envoy, auth-service)
-- Configuración de `.env`
-- Output del comando `./get-token.sh`
-- Versión de los componentes
+# Verificar JWKS de Keycloak
+curl http://keycloak:8080/realms/observability/protocol/openid-connect/certs
+```
 
 ## 📄 Licencia
 
-Proyecto interno de Talma.
-
-## 📞 Contacto
-
-Equipo de Observabilidad - Talma DevOps
-
----
-
-**Última actualización:** Enero 2025
-**Stack version:** v1.0.0
+MIT

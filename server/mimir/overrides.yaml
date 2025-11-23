@@ -1,0 +1,21 @@
+# L\u00edmites por tenant (ambiente) en Mimir
+# Cada ambiente tiene sus propios l\u00edmites
+
+overrides:
+  # Ambiente de desarrollo
+  talma-dev:
+    ingestion_rate: 100000
+    ingestion_burst_size: 200000
+    max_global_series_per_user: 200000
+
+  # Ambiente de QA
+  talma-qa:
+    ingestion_rate: 150000
+    ingestion_burst_size: 300000
+    max_global_series_per_user: 300000
+
+  # Ambiente de producci\u00f3n
+  talma-prod:
+    ingestion_rate: 300000
+    ingestion_burst_size: 600000
+    max_global_series_per_user: 1000000
